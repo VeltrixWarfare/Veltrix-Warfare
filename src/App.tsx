@@ -107,13 +107,7 @@ export default function App() {
           : 'Registrasi berhasil. Cek email lu untuk konfirmasi akun sebelum login.')
       }
     } catch (error) {
-      const message =
-    error && typeof error === 'object' && 'message' in error
-      ? String(error.message)
-      : String(error)
-
-  console.error('Gagal menyimpan membership:', error)
-  setAdminError(`Gagal menyimpan: ${message}`)
+      action(error instanceof Error ? error.message : 'Terjadi kesalahan autentikasi.')
     } finally {
       setAuthBusy(false)
     }
@@ -163,11 +157,7 @@ export default function App() {
     }
   }
 
-  const editAdminMember = (memberId: string, changes: Partial<AdminMember>) => {
-    setAdminMembers(current => current.map(member => member.id === memberId ? { ...member, ...changes } : member))
-  }
-
-  const updateAdminMember = async (member: AdminMember) => {
+  const updateMemberStatus = async (member: AdminMember, nextStatus: 'active' | 'inactive') => {
     if (!supabase || !adminAuthorized) return
     setAdminBusyUser(member.id)
     setAdminError('')
@@ -175,16 +165,16 @@ export default function App() {
       const { error } = await supabase.from('memberships').upsert({
         user_id: member.id,
         plan: member.plan || 'Essential',
-        status: member.status || 'inactive',
-        starts_at: member.starts_at || null,
-        ends_at: member.ends_at || null,
-        payment_reference: member.payment_reference?.trim() || null,
+        status: nextStatus,
+        starts_at: member.starts_at || new Date().toISOString(),
+        ends_at: member.ends_at,
+        payment_reference: member.payment_reference,
       }, { onConflict: 'user_id' })
       if (error) throw error
-      action(`Membership ${member.full_name || member.id.slice(0, 8)} berhasil disimpan.`)
+      action(`Membership ${member.full_name || member.id.slice(0, 8)} sekarang ${nextStatus}.`)
       await loadAdminData()
     } catch (error) {
-      setAdminError(error instanceof Error ? error.message : 'Gagal menyimpan membership. Periksa skema tabel memberships.')
+      setAdminError(error instanceof Error ? error.message : 'Gagal memperbarui membership.')
     } finally {
       setAdminBusyUser(null)
     }
@@ -366,18 +356,7 @@ export default function App() {
             {adminError && <div className="demo-banner compact"><CircleHelp size={16}/><span>{adminError}</span></div>}
             <div className="admin-metrics">{[{l:'Registered members',v:String(adminMembers.length),s:'Profiles in database'},{l:'Active memberships',v:String(adminMembers.filter(m=>m.status==='active').length),s:'Membership status active'},{l:'Inactive / no plan',v:String(adminMembers.filter(m=>m.status!=='active').length),s:'Includes accounts without membership'},{l:'Transactions',v:'—',s:'Payment integration not configured'}].map(m=><div className="glass-panel admin-metric" key={m.l}><span>{m.l}</span><b>{m.v}</b><small>{m.s}</small></div>)}</div>
             <div className="glass-panel transactions-panel"><div className="panel-heading"><div><span className="section-kicker">MEMBER DIRECTORY</span><h3>Accounts & membership</h3></div><Pill tone="silver">{adminMembers.length} ACCOUNTS</Pill></div>
-              {adminLoading ? <div className="empty-state large-empty"><b>Loading member data…</b></div> : adminMembers.length === 0 ? <div className="empty-state large-empty"><div className="empty-icon"><GraduationCap size={22}/></div><b>No member profiles found</b><span>Setelah user registrasi, profil akan tampil di sini jika trigger database berhasil.</span></div> : <div className="admin-member-list">{adminMembers.map(member=><div className="admin-member-row admin-member-row-editable" key={member.id}>
-                <div className="admin-member-info"><b>{member.full_name || 'Unnamed member'}</b><small>{member.id.slice(0,8)}… · joined {member.created_at ? new Date(member.created_at).toLocaleDateString() : 'unknown date'}</small><small>Role akun: {member.role.toUpperCase()} · role tidak berubah saat membership diedit</small></div>
-                <div className="admin-member-editor">
-                  <label className="form-label">Membership plan<select value={member.plan || 'Essential'} onChange={e=>editAdminMember(member.id,{plan:e.target.value})}><option value="Essential">Essential</option><option value="Advanced">Advanced</option><option value="Private">Private</option></select></label>
-                  <label className="form-label">Status<select value={member.status || 'inactive'} onChange={e=>editAdminMember(member.id,{status:e.target.value})}><option value="inactive">Inactive</option><option value="active">Active</option><option value="expired">Expired</option><option value="cancelled">Cancelled</option></select></label>
-                  <label className="form-label">Start date<input type="date" value={member.starts_at ? member.starts_at.slice(0,10) : ''} onChange={e=>editAdminMember(member.id,{starts_at:e.target.value || null})}/></label>
-                  <label className="form-label">End date<input type="date" value={member.ends_at ? member.ends_at.slice(0,10) : ''} onChange={e=>editAdminMember(member.id,{ends_at:e.target.value || null})}/></label>
-                  <label className="form-label admin-payment-reference">Payment reference<input type="text" value={member.payment_reference || ''} onChange={e=>editAdminMember(member.id,{payment_reference:e.target.value || null})} placeholder="Invoice / transfer reference" maxLength={120}/></label>
-                  <div className="admin-member-save"><Pill tone={member.status==='active'?'positive':member.status==='expired'||member.status==='cancelled'?'negative':'neutral'}>{(member.status || 'inactive').toUpperCase()}</Pill><button className="button button-primary" disabled={adminBusyUser===member.id || member.role==='admin'} onClick={()=>void updateAdminMember(member)}>{adminBusyUser===member.id?'Saving…':'Save membership'}</button></div>
-                  {member.role==='admin' && <small className="admin-member-warning">Akun admin dilindungi dari perubahan membership melalui panel ini.</small>}
-                </div>
-              </div>)}</div>}
+              {adminLoading ? <div className="empty-state large-empty"><b>Loading member data…</b></div> : adminMembers.length === 0 ? <div className="empty-state large-empty"><div className="empty-icon"><GraduationCap size={22}/></div><b>No member profiles found</b><span>Setelah user registrasi, profil akan tampil di sini jika trigger database berhasil.</span></div> : <div className="admin-member-list">{adminMembers.map(member=><div className="admin-member-row" key={member.id}><div className="admin-member-info"><b>{member.full_name || 'Unnamed member'}</b><small>{member.id.slice(0,8)}… · joined {member.created_at ? new Date(member.created_at).toLocaleDateString() : 'unknown date'}</small><small>Plan: {member.plan || 'No plan'} · Status: {member.status || 'not assigned'}</small>{member.ends_at && <small>Ends: {new Date(member.ends_at).toLocaleDateString()}</small>}</div><div className="admin-member-actions"><Pill tone={member.role==='admin'?'silver':member.status==='active'?'positive':'neutral'}>{member.role==='admin'?'ADMIN':(member.status || 'NO PLAN').toUpperCase()}</Pill><button className="button button-outline" disabled={adminBusyUser===member.id || member.role==='admin'} onClick={() => void updateMemberStatus(member, member.status==='active'?'inactive':'active')}>{adminBusyUser===member.id?'Saving…':member.status==='active'?'Deactivate':'Activate'}</button></div></div>)}</div>}
             </div>
             <div className="two-column"><div className="glass-panel content-panel"><div className="panel-heading"><h3>Platform management</h3><Pill tone="silver">CONNECTED</Pill></div><div className="admin-action"><span className="admin-action-icon"><Wallet size={17}/></span><span><b>Membership plans</b><small>Essential, Advanced, Private · payment checkout still disabled</small></span></div><div className="admin-action"><span className="admin-action-icon"><Newspaper size={17}/></span><span><b>Content library</b><small>Content editor not implemented yet</small></span></div></div><div className="glass-panel content-panel"><div className="panel-heading"><h3>System status</h3><Activity size={16}/></div>{[{k:'Frontend',v:'Available'},{k:'Authentication',v:'Connected'},{k:'Database',v:'Connected'},{k:'Payment provider',v:'Not connected'}].map(x=><div className="system-row" key={x.k}><span>{x.k}</span><Pill tone={x.v==='Available'||x.v==='Connected'?'positive':'neutral'}>{x.v}</Pill></div>)}</div></div>
           </>}
