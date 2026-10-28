@@ -107,7 +107,13 @@ export default function App() {
           : 'Registrasi berhasil. Cek email lu untuk konfirmasi akun sebelum login.')
       }
     } catch (error) {
-      action(error instanceof Error ? error.message : 'Terjadi kesalahan autentikasi.')
+      const message =
+    error && typeof error === 'object' && 'message' in error
+      ? String(error.message)
+      : String(error)
+
+  console.error('Gagal menyimpan membership:', error)
+  setAdminError(`Gagal menyimpan: ${message}`)
     } finally {
       setAuthBusy(false)
     }
