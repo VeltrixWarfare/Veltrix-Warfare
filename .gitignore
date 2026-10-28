@@ -4,3 +4,7 @@ dist
 .env.*
 !.env.example
 .DS_Store
+# Local environment variables
+.env
+.env.*
+!.env.example
