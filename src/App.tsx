@@ -28,6 +28,7 @@ const fmt = (s: string) => s
 const numberPrice = (n: number, digits = 2) => n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 
 type LiveStatus = 'CONNECTING' | 'LIVE' | 'DAILY' | 'UNAVAILABLE'
+type AdminMember = { id: string; full_name: string | null; role: string; created_at: string; plan: string | null; status: string | null; starts_at: string | null; ends_at: string | null; payment_reference: string | null }
 function initialMarketItems() {
   return instruments.map(item => ({ ...item, price: 'Connecting…', change: '—', status: 'CONNECTING' as LiveStatus, points: item.points }))
 }
@@ -62,6 +63,11 @@ export default function App() {
   const [authName, setAuthName] = useState('')
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null)
   const [authBusy, setAuthBusy] = useState(false)
+  const [adminLoading, setAdminLoading] = useState(false)
+  const [adminAuthorized, setAdminAuthorized] = useState(false)
+  const [adminMembers, setAdminMembers] = useState<AdminMember[]>([])
+  const [adminError, setAdminError] = useState('')
+  const [adminBusyUser, setAdminBusyUser] = useState<string | null>(null)
   const [billing, setBilling] = useState<'Monthly' | 'Yearly'>('Monthly')
   const [query, setQuery] = useState('')
   const filteredInstruments = useMemo(() => marketInstruments.filter(i => (category === 'All' || i.category === category) && `${i.symbol} ${i.name}`.toLowerCase().includes(search.toLowerCase())), [marketInstruments, category, search])
@@ -106,6 +112,77 @@ export default function App() {
       setAuthBusy(false)
     }
   }
+
+  const loadAdminData = async () => {
+    if (!supabase) {
+      setAdminError('Supabase belum dikonfigurasi. Periksa environment variables Vercel.')
+      setAdminAuthorized(false)
+      return
+    }
+    setAdminLoading(true)
+    setAdminError('')
+    try {
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError) throw userError
+      if (!user) {
+        setAdminAuthorized(false)
+        setAdminMembers([])
+        setAdminError('Login terlebih dahulu menggunakan akun admin.')
+        return
+      }
+      const { data: allowed, error: roleError } = await supabase.rpc('is_admin')
+      if (roleError) throw new Error('Pemeriksaan hak admin gagal. Jalankan SQL admin_membership_setup.sql di Supabase.')
+      if (allowed !== true) {
+        setAdminAuthorized(false)
+        setAdminMembers([])
+        setAdminError('Akses ditolak. Akun ini belum memiliki role admin di database.')
+        return
+      }
+      setAdminAuthorized(true)
+      const [{ data: profiles, error: profilesError }, { data: memberships, error: membershipsError }] = await Promise.all([
+        supabase.from('profiles').select('id,full_name,role,created_at').order('created_at', { ascending: false }),
+        supabase.from('memberships').select('user_id,plan,status,starts_at,ends_at,payment_reference'),
+      ])
+      if (profilesError) throw profilesError
+      if (membershipsError) throw membershipsError
+      const membershipByUser = new Map((memberships ?? []).map((m: any) => [m.user_id, m]))
+      setAdminMembers((profiles ?? []).map((profile: any) => {
+        const membership: any = membershipByUser.get(profile.id)
+        return { id: profile.id, full_name: profile.full_name, role: profile.role, created_at: profile.created_at, plan: membership?.plan ?? null, status: membership?.status ?? null, starts_at: membership?.starts_at ?? null, ends_at: membership?.ends_at ?? null, payment_reference: membership?.payment_reference ?? null }
+      }))
+    } catch (error) {
+      setAdminError(error instanceof Error ? error.message : 'Gagal memuat data admin.')
+    } finally {
+      setAdminLoading(false)
+    }
+  }
+
+  const updateMemberStatus = async (member: AdminMember, nextStatus: 'active' | 'inactive') => {
+    if (!supabase || !adminAuthorized) return
+    setAdminBusyUser(member.id)
+    setAdminError('')
+    try {
+      const { error } = await supabase.from('memberships').upsert({
+        user_id: member.id,
+        plan: member.plan || 'Essential',
+        status: nextStatus,
+        starts_at: member.starts_at || new Date().toISOString(),
+        ends_at: member.ends_at,
+        payment_reference: member.payment_reference,
+      }, { onConflict: 'user_id' })
+      if (error) throw error
+      action(`Membership ${member.full_name || member.id.slice(0, 8)} sekarang ${nextStatus}.`)
+      await loadAdminData()
+    } catch (error) {
+      setAdminError(error instanceof Error ? error.message : 'Gagal memperbarui membership.')
+    } finally {
+      setAdminBusyUser(null)
+    }
+  }
+
+  useEffect(() => {
+    if (page === 'Admin Panel') void loadAdminData()
+  }, [page, signedInEmail])
 
   const handlePasswordReset = async () => {
     if (!supabase) {
@@ -228,7 +305,7 @@ export default function App() {
       <div className="workspace-label"><span className="workspace-dot"/><span>TRADING WORKSPACE</span><ChevronDown size={13}/></div>
       {['PLATFORM', 'LEARN', 'ACCOUNT', 'PREVIEW'].map(group => <div className="nav-group" key={group}>
         <div className="nav-caption">{group}</div>
-        {nav.filter(n => n.group === group).map(item => { const Icon = item.icon; return <button key={item.label} onClick={() => go(item.label)} className={`nav-link ${page === item.label ? 'active' : ''}`}><Icon size={16}/><span>{item.label}</span>{item.label === 'Admin Panel' && <span className="tiny-label">DEMO</span>}</button> })}
+        {nav.filter(n => n.group === group).map(item => { const Icon = item.icon; return <button key={item.label} onClick={() => go(item.label)} className={`nav-link ${page === item.label ? 'active' : ''}`}><Icon size={16}/><span>{item.label}</span>{item.label === 'Admin Panel' && <span className="tiny-label">ADMIN</span>}</button> })}
       </div>)}
       <div className="sidebar-bottom">
         <div className="discipline-card"><div className="discipline-mark"><Zap size={16}/></div><div><b>Discipline over emotion.</b><span>Build your process.</span></div></div>
@@ -272,7 +349,18 @@ export default function App() {
 
         {page === 'Login / Register' && <><PageIntro kicker="07 / ACCOUNT ACCESS" title="Your workspace starts here." desc="Sign in or create your VELTRIX WARFARE account securely."/><div className="auth-wrap"><div className="glass-panel auth-card"><Logo/>{signedInEmail ? <><div className="auth-tabs"><button className="selected" type="button">Account</button></div><h2>You are signed in.</h2><p className="muted">Signed in as {signedInEmail}</p><div className="auth-note"><ShieldCheck size={14}/> Account authenticated successfully.</div><button className="button button-outline full-button" type="button" disabled={authBusy} onClick={() => void handleLogout()}>{authBusy ? 'Please wait...' : 'Logout'}</button></> : <><div className="auth-tabs"><button type="button" className={authMode==='Login'?'selected':''} onClick={()=>setAuthMode('Login')}>Login</button><button type="button" className={authMode==='Create account'?'selected':''} onClick={()=>setAuthMode('Create account')}>Create account</button></div><h2>{authMode==='Login'?'Welcome back.':'Create your account.'}</h2><p className="muted">Access your VELTRIX WARFARE workspace.</p><form onSubmit={handleAuthSubmit}><label className="form-label">Email address<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required/></label>{authMode==='Create account'&&<label className="form-label">Display name<input type="text" value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="Your name" autoComplete="name" maxLength={80} required/></label>}<label className="form-label">Password<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} minLength={8} placeholder="At least 8 characters" autoComplete={authMode==='Login'?'current-password':'new-password'} required/></label>{authMode==='Login'&&<button type="button" className="forgot-link" disabled={authBusy} onClick={()=>void handlePasswordReset()}>Forgot password?</button>}<button className="button button-primary full-button" type="submit" disabled={authBusy}>{authBusy?'Please wait...':authMode==='Login'?'Continue':'Create account'} <ArrowRight size={14}/></button></form><div className="auth-note"><LockKeyhole size={14}/> {supabase ? 'Secure authentication powered by Supabase.' : 'Authentication requires Supabase configuration.'}</div></>}</div></div></>}
 
-        {page === 'Admin Panel' && <><PageIntro kicker="08 / CONTROL ROOM" title="Administration preview." desc="Layout demonstration only. This page has no authentication, authorization, or connection to real member data."/><div className="demo-banner compact"><ShieldCheck size={16}/><span>ADMIN DEMO — do not use for real account or payment management.</span></div><div className="admin-metrics">{[{l:'Registered members',v:'—',s:'No database connected'},{l:'Active memberships',v:'—',s:'No entitlements loaded'},{l:'Pending transactions',v:'—',s:'No payment provider'},{l:'Published content',v:'04',s:'Local demo entries'}].map(m=><div className="glass-panel admin-metric" key={m.l}><span>{m.l}</span><b>{m.v}</b><small>{m.s}</small></div>)}</div><div className="two-column"><div className="glass-panel content-panel"><div className="panel-heading"><h3>Platform management</h3><Pill tone="silver">PREVIEW</Pill></div>{[{i:<Wallet/>,t:'Membership plans',d:'Pricing configuration placeholder'},{i:<Newspaper/>,t:'Content library',d:'Manage educational content (not connected)'},{i:<Settings2/>,t:'Platform settings',d:'Configuration UI placeholder'}].map((x,i)=><button className="admin-action" key={i} onClick={()=>action(`${x.t}: backend integration is not configured.`)}><span className="admin-action-icon">{x.i}</span><span><b>{x.t}</b><small>{x.d}</small></span><ArrowRight size={15}/></button>)}</div><div className="glass-panel content-panel"><div className="panel-heading"><h3>System status</h3><Activity size={16}/></div>{[{k:'Frontend',v:'Available'},{k:'Authentication',v:'Not configured'},{k:'Database',v:'Not connected'},{k:'Payment provider',v:'Not connected'}].map(x=><div className="system-row" key={x.k}><span>{x.k}</span><Pill tone={x.v==='Available'?'positive':'neutral'}>{x.v}</Pill></div>)}</div></div></>}
+        {page === 'Admin Panel' && <>
+          <PageIntro kicker="08 / CONTROL ROOM" title="Administration control room." desc="Kelola akun dan status membership yang tersimpan di database. Semua perubahan memerlukan role admin yang diverifikasi Supabase."/>
+          {!adminAuthorized ? <div className="glass-panel content-panel"><div className="panel-heading"><h3>Admin access required</h3><ShieldCheck size={18}/></div><p className="muted">{adminLoading ? 'Memeriksa sesi dan hak akses admin…' : adminError || 'Masuk menggunakan akun admin untuk membuka kontrol panel.'}</p><div className="welcome-actions"><button className="button button-primary" onClick={() => go('Login / Register')}>Open login <ArrowRight size={14}/></button><button className="button button-outline" disabled={adminLoading} onClick={() => void loadAdminData()}>{adminLoading ? 'Loading…' : 'Check access again'}</button></div></div> : <>
+            <div className="demo-banner compact"><ShieldCheck size={16}/><span>ADMIN ACCESS VERIFIED · perubahan membership dicatat di Supabase.</span><button className="button button-outline" disabled={adminLoading} onClick={() => void loadAdminData()}><Activity size={14}/> Refresh</button></div>
+            {adminError && <div className="demo-banner compact"><CircleHelp size={16}/><span>{adminError}</span></div>}
+            <div className="admin-metrics">{[{l:'Registered members',v:String(adminMembers.length),s:'Profiles in database'},{l:'Active memberships',v:String(adminMembers.filter(m=>m.status==='active').length),s:'Membership status active'},{l:'Inactive / no plan',v:String(adminMembers.filter(m=>m.status!=='active').length),s:'Includes accounts without membership'},{l:'Transactions',v:'—',s:'Payment integration not configured'}].map(m=><div className="glass-panel admin-metric" key={m.l}><span>{m.l}</span><b>{m.v}</b><small>{m.s}</small></div>)}</div>
+            <div className="glass-panel transactions-panel"><div className="panel-heading"><div><span className="section-kicker">MEMBER DIRECTORY</span><h3>Accounts & membership</h3></div><Pill tone="silver">{adminMembers.length} ACCOUNTS</Pill></div>
+              {adminLoading ? <div className="empty-state large-empty"><b>Loading member data…</b></div> : adminMembers.length === 0 ? <div className="empty-state large-empty"><div className="empty-icon"><GraduationCap size={22}/></div><b>No member profiles found</b><span>Setelah user registrasi, profil akan tampil di sini jika trigger database berhasil.</span></div> : <div className="admin-member-list">{adminMembers.map(member=><div className="admin-member-row" key={member.id}><div className="admin-member-info"><b>{member.full_name || 'Unnamed member'}</b><small>{member.id.slice(0,8)}… · joined {member.created_at ? new Date(member.created_at).toLocaleDateString() : 'unknown date'}</small><small>Plan: {member.plan || 'No plan'} · Status: {member.status || 'not assigned'}</small>{member.ends_at && <small>Ends: {new Date(member.ends_at).toLocaleDateString()}</small>}</div><div className="admin-member-actions"><Pill tone={member.role==='admin'?'silver':member.status==='active'?'positive':'neutral'}>{member.role==='admin'?'ADMIN':(member.status || 'NO PLAN').toUpperCase()}</Pill><button className="button button-outline" disabled={adminBusyUser===member.id || member.role==='admin'} onClick={() => void updateMemberStatus(member, member.status==='active'?'inactive':'active')}>{adminBusyUser===member.id?'Saving…':member.status==='active'?'Deactivate':'Activate'}</button></div></div>)}</div>}
+            </div>
+            <div className="two-column"><div className="glass-panel content-panel"><div className="panel-heading"><h3>Platform management</h3><Pill tone="silver">CONNECTED</Pill></div><div className="admin-action"><span className="admin-action-icon"><Wallet size={17}/></span><span><b>Membership plans</b><small>Essential, Advanced, Private · payment checkout still disabled</small></span></div><div className="admin-action"><span className="admin-action-icon"><Newspaper size={17}/></span><span><b>Content library</b><small>Content editor not implemented yet</small></span></div></div><div className="glass-panel content-panel"><div className="panel-heading"><h3>System status</h3><Activity size={16}/></div>{[{k:'Frontend',v:'Available'},{k:'Authentication',v:'Connected'},{k:'Database',v:'Connected'},{k:'Payment provider',v:'Not connected'}].map(x=><div className="system-row" key={x.k}><span>{x.k}</span><Pill tone={x.v==='Available'||x.v==='Connected'?'positive':'neutral'}>{x.v}</Pill></div>)}</div></div>
+          </>}
+        </>}
 
         {page === 'Transactions' && <><PageIntro kicker="09 / ACCOUNT RECORDS" title="Transaction history." desc="No real transactions are available. The table below is intentionally empty until a verified backend is configured."/><div className="glass-panel transactions-panel"><div className="panel-heading"><div><span className="section-kicker">FINANCIAL RECORDS</span><h3>All transactions</h3></div><button className="button button-outline" onClick={()=>action('No transaction records exist in this frontend preview.')}><Filter size={14}/> Filter</button></div><div className="table-header transaction-head"><span>REFERENCE</span><span>DESCRIPTION</span><span>DATE</span><span>AMOUNT</span><span>STATUS</span></div><div className="empty-state large-empty"><div className="empty-icon"><FileText size={22}/></div><b>No transaction records</b><span>Transactions will appear here after a real payment and secure backend integration are implemented.</span></div></div></>}
       </div>
