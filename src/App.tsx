@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts'
 import { instruments, lessons, news } from './data/demo'
+import { supabase } from './lib/supabase'
 
 type Page = 'Overview' | 'Market' | 'News & Calendar' | 'Academy' | 'Analysis' | 'About' | 'Membership' | 'Login / Register' | 'Admin Panel' | 'Transactions'
 const nav: { label: Page; icon: typeof LayoutDashboard; group: string }[] = [
@@ -56,6 +57,11 @@ export default function App() {
   const [lessonFilter, setLessonFilter] = useState('All')
   const [notice, setNotice] = useState('')
   const [authMode, setAuthMode] = useState<'Login' | 'Create account'>('Login')
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authName, setAuthName] = useState('')
+  const [signedInEmail, setSignedInEmail] = useState<string | null>(null)
+  const [authBusy, setAuthBusy] = useState(false)
   const [billing, setBilling] = useState<'Monthly' | 'Yearly'>('Monthly')
   const [query, setQuery] = useState('')
   const filteredInstruments = useMemo(() => marketInstruments.filter(i => (category === 'All' || i.category === category) && `${i.symbol} ${i.name}`.toLowerCase().includes(search.toLowerCase())), [marketInstruments, category, search])
@@ -64,9 +70,108 @@ export default function App() {
   const action = (message: string) => setNotice(message)
   const toggleWatch = (symbol: string) => setWatchlist(old => old.includes(symbol) ? old.filter(s => s !== symbol) : [...old, symbol])
 
+  const handleAuthSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+
+    if (!supabase) {
+      action('Supabase belum terkonfigurasi. Periksa environment variables Vercel.')
+      return
+    }
+
+    setAuthBusy(true)
+    setNotice('')
+
+    try {
+      if (authMode === 'Login') {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: authEmail.trim(),
+          password: authPassword,
+        })
+        if (error) throw error
+        action('Login berhasil. Akun lu sudah terhubung.')
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email: authEmail.trim(),
+          password: authPassword,
+          options: { data: { full_name: authName.trim() } },
+        })
+        if (error) throw error
+        action(data.session
+          ? 'Registrasi berhasil. Akun lu sudah aktif.'
+          : 'Registrasi berhasil. Cek email lu untuk konfirmasi akun sebelum login.')
+      }
+    } catch (error) {
+      action(error instanceof Error ? error.message : 'Terjadi kesalahan autentikasi.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const handlePasswordReset = async () => {
+    if (!supabase) {
+      action('Supabase belum terkonfigurasi.')
+      return
+    }
+    if (!authEmail.trim()) {
+      action('Masukkan email lu terlebih dahulu untuk reset password.')
+      return
+    }
+
+    setAuthBusy(true)
+    setNotice('')
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(authEmail.trim(), {
+        redirectTo: window.location.origin,
+      })
+      if (error) throw error
+      action('Jika email terdaftar, instruksi reset password akan dikirim ke email tersebut.')
+    } catch (error) {
+      action(error instanceof Error ? error.message : 'Permintaan reset password gagal.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    if (!supabase) return
+    setAuthBusy(true)
+    try {
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+      action('Lu berhasil logout.')
+    } catch (error) {
+      action(error instanceof Error ? error.message : 'Logout gagal.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
   useEffect(() => {
     try { localStorage.setItem('vw-watchlist', JSON.stringify(watchlist)) } catch { /* storage may be unavailable */ }
   }, [watchlist])
+
+  useEffect(() => {
+    if (!supabase) return
+
+    let active = true
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return
+      if (error) {
+        setNotice('Gagal memeriksa sesi login.')
+        return
+      }
+      setSignedInEmail(data.session?.user.email ?? null)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSignedInEmail(session?.user.email ?? null)
+    })
+
+    return () => {
+      active = false
+      subscription.unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -165,7 +270,7 @@ export default function App() {
 
         {page === 'Membership' && <><PageIntro kicker="06 / MEMBERSHIP" title="Choose your level of access." desc="Membership layout preview. No payment, subscription, or entitlement is active in this frontend version."/><div className="billing-row"><span>Billing period</span><div className="segmented">{(['Monthly','Yearly'] as const).map(b=><button key={b} className={billing===b?'selected':''} onClick={()=>setBilling(b)}>{b}{b==='Yearly'&&<small> SAVE 20%</small>}</button>)}</div></div><div className="pricing-grid">{[{name:'Essential',price:billing==='Monthly'?'79k':'758k',desc:'A focused starting point.',features:['Market overview','Learning library','Basic market notes']},{name:'Advanced',price:billing==='Monthly'?'149k':'1.430k',desc:'For a more structured workflow.',features:['Everything in Essential','Extended analysis library','Scenario frameworks','Advanced learning paths'],featured:true},{name:'Private',price:billing==='Monthly'?'299k':'2.870k',desc:'A comprehensive platform concept.',features:['Everything in Advanced','Premium research layout','Priority content access','Member features (planned)']}].map(p=><div className={`glass-panel price-card ${p.featured?'featured':''}`} key={p.name}>{p.featured&&<span className="popular-label">FEATURED PLAN</span>}<span className="section-kicker">{p.name.toUpperCase()} ACCESS</span><h3>{p.name}</h3><p>{p.desc}</p><div className="price"><b>Rp {p.price}</b><span>/{billing==='Monthly'?'month':'year'}</span></div><div className="price-divider"/>{p.features.map(f=><div className="feature-check" key={f}><Check size={15}/>{f}</div>)}<button className={`button ${p.featured?'button-primary':'button-outline'} full-button`} onClick={()=>action('Checkout is not enabled yet. A verified payment provider and server-side webhook must be configured before accepting payments.')}>Select plan <ArrowRight size={14}/></button></div>)}</div><p className="fine-print">All prices are placeholder examples for design review and are not an active offer.</p></>}
 
-        {page === 'Login / Register' && <><PageIntro kicker="07 / ACCOUNT ACCESS" title="Your workspace starts here." desc="Authentication screens are prepared for future integration. No account is created or accessed in this demo."/><div className="auth-wrap"><div className="glass-panel auth-card"><Logo/><div className="auth-tabs"><button className={authMode==='Login'?'selected':''} onClick={()=>setAuthMode('Login')}>Login</button><button className={authMode==='Create account'?'selected':''} onClick={()=>setAuthMode('Create account')}>Create account</button></div><h2>{authMode==='Login'?'Welcome back.':'Create your account.'}</h2><p className="muted">Enter your details to preview the form.</p><form onSubmit={e=>{e.preventDefault();action('Authentication is not configured. No credentials were sent or saved.')}}><label className="form-label">Email address<input type="email" placeholder="you@example.com" required/></label>{authMode==='Create account'&&<label className="form-label">Display name<input placeholder="Your name" required/></label>}<label className="form-label">Password<input type="password" minLength={8} placeholder="At least 8 characters" required/></label>{authMode==='Login'&&<button type="button" className="forgot-link" onClick={()=>action('Password recovery is unavailable until authentication is configured.')}>Forgot password?</button>}<button className="button button-primary full-button" type="submit">{authMode==='Login'?'Continue':'Create account'} <ArrowRight size={14}/></button></form><div className="auth-note"><LockKeyhole size={14}/> Demo UI only · credentials are not submitted</div></div></div></>}
+        {page === 'Login / Register' && <><PageIntro kicker="07 / ACCOUNT ACCESS" title="Your workspace starts here." desc="Sign in or create your VELTRIX WARFARE account securely."/><div className="auth-wrap"><div className="glass-panel auth-card"><Logo/>{signedInEmail ? <><div className="auth-tabs"><button className="selected" type="button">Account</button></div><h2>You are signed in.</h2><p className="muted">Signed in as {signedInEmail}</p><div className="auth-note"><ShieldCheck size={14}/> Account authenticated successfully.</div><button className="button button-outline full-button" type="button" disabled={authBusy} onClick={() => void handleLogout()}>{authBusy ? 'Please wait...' : 'Logout'}</button></> : <><div className="auth-tabs"><button type="button" className={authMode==='Login'?'selected':''} onClick={()=>setAuthMode('Login')}>Login</button><button type="button" className={authMode==='Create account'?'selected':''} onClick={()=>setAuthMode('Create account')}>Create account</button></div><h2>{authMode==='Login'?'Welcome back.':'Create your account.'}</h2><p className="muted">Access your VELTRIX WARFARE workspace.</p><form onSubmit={handleAuthSubmit}><label className="form-label">Email address<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required/></label>{authMode==='Create account'&&<label className="form-label">Display name<input type="text" value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="Your name" autoComplete="name" maxLength={80} required/></label>}<label className="form-label">Password<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} minLength={8} placeholder="At least 8 characters" autoComplete={authMode==='Login'?'current-password':'new-password'} required/></label>{authMode==='Login'&&<button type="button" className="forgot-link" disabled={authBusy} onClick={()=>void handlePasswordReset()}>Forgot password?</button>}<button className="button button-primary full-button" type="submit" disabled={authBusy}>{authBusy?'Please wait...':authMode==='Login'?'Continue':'Create account'} <ArrowRight size={14}/></button></form><div className="auth-note"><LockKeyhole size={14}/> {supabase ? 'Secure authentication powered by Supabase.' : 'Authentication requires Supabase configuration.'}</div></>}</div></div></>}
 
         {page === 'Admin Panel' && <><PageIntro kicker="08 / CONTROL ROOM" title="Administration preview." desc="Layout demonstration only. This page has no authentication, authorization, or connection to real member data."/><div className="demo-banner compact"><ShieldCheck size={16}/><span>ADMIN DEMO — do not use for real account or payment management.</span></div><div className="admin-metrics">{[{l:'Registered members',v:'—',s:'No database connected'},{l:'Active memberships',v:'—',s:'No entitlements loaded'},{l:'Pending transactions',v:'—',s:'No payment provider'},{l:'Published content',v:'04',s:'Local demo entries'}].map(m=><div className="glass-panel admin-metric" key={m.l}><span>{m.l}</span><b>{m.v}</b><small>{m.s}</small></div>)}</div><div className="two-column"><div className="glass-panel content-panel"><div className="panel-heading"><h3>Platform management</h3><Pill tone="silver">PREVIEW</Pill></div>{[{i:<Wallet/>,t:'Membership plans',d:'Pricing configuration placeholder'},{i:<Newspaper/>,t:'Content library',d:'Manage educational content (not connected)'},{i:<Settings2/>,t:'Platform settings',d:'Configuration UI placeholder'}].map((x,i)=><button className="admin-action" key={i} onClick={()=>action(`${x.t}: backend integration is not configured.`)}><span className="admin-action-icon">{x.i}</span><span><b>{x.t}</b><small>{x.d}</small></span><ArrowRight size={15}/></button>)}</div><div className="glass-panel content-panel"><div className="panel-heading"><h3>System status</h3><Activity size={16}/></div>{[{k:'Frontend',v:'Available'},{k:'Authentication',v:'Not configured'},{k:'Database',v:'Not connected'},{k:'Payment provider',v:'Not connected'}].map(x=><div className="system-row" key={x.k}><span>{x.k}</span><Pill tone={x.v==='Available'?'positive':'neutral'}>{x.v}</Pill></div>)}</div></div></>}
 
