@@ -10,7 +10,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts'
 import { instruments, lessons, news } from './data/demo'
 import { supabase } from './lib/supabase'
 
-type Page = 'Overview' | 'Market' | 'News & Calendar' | 'Academy' | 'Analysis' | 'About' | 'Membership' | 'Login / Register' | 'Admin Panel' | 'Transactions'
+type Page = 'Settings' | 'Overview' | 'Market' | 'News & Calendar' | 'Academy' | 'Analysis' | 'About' | 'Membership' | 'Login / Register' | 'Admin Panel' | 'Transactions'
 const nav: { label: Page; icon: typeof LayoutDashboard; group: string }[] = [
   { label: 'Overview', icon: LayoutDashboard, group: 'PLATFORM' },
   { label: 'Market', icon: Activity, group: 'PLATFORM' },
@@ -45,7 +45,17 @@ function Pill({ children, tone = 'neutral' }: { children: React.ReactNode; tone?
 
 export default function App() {
   const [page, setPage] = useState<Page>('Overview')
+  const [language, setLanguage] = useState(() => { try { return localStorage.getItem('vw-language') || 'en' } catch { return 'en' } })
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => { try { return localStorage.getItem('vw-theme') === 'light' ? 'light' : 'dark' } catch { return 'dark' } })
   const [mobileOpen, setMobileOpen] = useState(false)
+  const translations: Record<string, Record<string, string>> = {
+    en: { workspace: 'TRADING WORKSPACE', settings: 'Settings', overview: 'Overview', market: 'Market', news: 'News & Calendar', academy: 'Academy', analysis: 'Analysis', about: 'About', membership: 'Membership', login: 'Login / Register', admin: 'Admin Panel', transactions: 'Transactions', platform: 'PLATFORM', learn: 'LEARN', account: 'ACCOUNT', preview: 'PREVIEW', settingsTitle: 'Workspace settings', settingsDesc: 'Customize your language and appearance. Your preferences are saved on this device.', language: 'Language', languageDesc: 'Choose the language used in the workspace interface.', appearance: 'Appearance', appearanceDesc: 'Choose the look that feels right for you.', dark: 'Dark', darkDesc: 'A focused, low-light interface.', light: 'Light', lightDesc: 'A bright, clean interface.', saved: 'Preferences are saved automatically.' },
+    id: { workspace: 'RUANG KERJA TRADING', settings: 'Pengaturan', overview: 'Ringkasan', market: 'Pasar', news: 'Berita & Kalender', academy: 'Akademi', analysis: 'Analisis', about: 'Tentang', membership: 'Keanggotaan', login: 'Masuk / Daftar', admin: 'Panel Admin', transactions: 'Transaksi', platform: 'PLATFORM', learn: 'PELAJARAN', account: 'AKUN', preview: 'PRATINJAU', settingsTitle: 'Pengaturan ruang kerja', settingsDesc: 'Sesuaikan bahasa dan tampilan. Preferensi disimpan di perangkat ini.', language: 'Bahasa', languageDesc: 'Pilih bahasa untuk antarmuka ruang kerja.', appearance: 'Tampilan', appearanceDesc: 'Pilih tampilan yang nyaman untuk Anda.', dark: 'Gelap', darkDesc: 'Antarmuka nyaman dalam cahaya rendah.', light: 'Terang', lightDesc: 'Antarmuka cerah dan bersih.', saved: 'Preferensi tersimpan otomatis.' },
+    ja: { workspace: 'トレーディングワークスペース', settings: '設定', overview: '概要', market: 'マーケット', news: 'ニュースとカレンダー', academy: 'アカデミー', analysis: '分析', about: '概要情報', membership: 'メンバーシップ', login: 'ログイン / 登録', admin: '管理パネル', transactions: '取引履歴', platform: 'プラットフォーム', learn: '学習', account: 'アカウント', preview: 'プレビュー', settingsTitle: 'ワークスペース設定', settingsDesc: '言語と外観をカスタマイズします。設定はこのデバイスに保存されます。', language: '言語', languageDesc: 'インターフェースの言語を選択します。', appearance: '外観', appearanceDesc: 'お好みの表示を選択します。', dark: 'ダーク', darkDesc: '暗い環境に適した表示。', light: 'ライト', lightDesc: '明るくすっきりした表示。', saved: '設定は自動的に保存されます。' },
+    zh: { workspace: '交易工作区', settings: '设置', overview: '概览', market: '市场', news: '新闻与日历', academy: '学院', analysis: '分析', about: '关于', membership: '会员', login: '登录 / 注册', admin: '管理面板', transactions: '交易记录', platform: '平台', learn: '学习', account: '账户', preview: '预览', settingsTitle: '工作区设置', settingsDesc: '自定义语言和外观。偏好设置将保存在此设备上。', language: '语言', languageDesc: '选择工作区界面语言。', appearance: '外观', appearanceDesc: '选择您喜欢的显示方式。', dark: '深色', darkDesc: '适合低光环境的界面。', light: '浅色', lightDesc: '明亮简洁的界面。', saved: '偏好设置已自动保存。' },
+    ar: { workspace: 'مساحة التداول', settings: 'الإعدادات', overview: 'نظرة عامة', market: 'السوق', news: 'الأخبار والتقويم', academy: 'الأكاديمية', analysis: 'التحليل', about: 'حول', membership: 'العضوية', login: 'تسجيل الدخول / التسجيل', admin: 'لوحة الإدارة', transactions: 'المعاملات', platform: 'المنصة', learn: 'التعلم', account: 'الحساب', preview: 'معاينة', settingsTitle: 'إعدادات مساحة العمل', settingsDesc: 'خصص اللغة والمظهر. يتم حفظ تفضيلاتك على هذا الجهاز.', language: 'اللغة', languageDesc: 'اختر لغة واجهة مساحة العمل.', appearance: 'المظهر', appearanceDesc: 'اختر المظهر الذي يناسبك.', dark: 'داكن', darkDesc: 'واجهة مريحة في الإضاءة المنخفضة.', light: 'فاتح', lightDesc: 'واجهة مشرقة وبسيطة.', saved: 'يتم حفظ التفضيلات تلقائيًا.' }
+  }
+  const tr = (key: string) => translations[language]?.[key] || translations.en[key] || key
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All')
   const [timeframe, setTimeframe] = useState('1D')
@@ -72,6 +82,9 @@ export default function App() {
   const [membershipLoading, setMembershipLoading] = useState(false)
   const [billing, setBilling] = useState<'Monthly' | 'Yearly'>('Monthly')
   const [query, setQuery] = useState('')
+  useEffect(() => { try { localStorage.setItem('vw-language', language) } catch {} }, [language])
+  useEffect(() => { try { localStorage.setItem('vw-theme', theme) } catch {} }, [theme])
+  useEffect(() => { document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'; document.documentElement.lang = language }, [language])
   const filteredInstruments = useMemo(() => marketInstruments.filter(i => (category === 'All' || i.category === category) && `${i.symbol} ${i.name}`.toLowerCase().includes(search.toLowerCase())), [marketInstruments, category, search])
   const filteredLessons = lessons.filter(l => lessonFilter === 'All' || l.level === lessonFilter)
   const go = (next: Page) => {
@@ -367,15 +380,16 @@ export default function App() {
     const timer = window.setInterval(() => { void refreshMarket() }, 60_000)
     return () => { alive = false; window.clearInterval(timer) }
   }, [])
-  const title = page === 'Overview' ? 'Market overview' : page
+  const title = page === 'Overview' ? (language === 'id' ? 'Ringkasan pasar' : language === 'ja' ? 'マーケット概要' : language === 'zh' ? '市场概览' : language === 'ar' ? 'نظرة عامة على السوق' : 'Market overview') : page === 'Settings' ? tr('settings') : tr(({ 'Market':'market', 'News & Calendar':'news', 'Academy':'academy', 'Analysis':'analysis', 'About':'about', 'Membership':'membership', 'Login / Register':'login', 'Admin Panel':'admin', 'Transactions':'transactions' } as Record<string,string>)[page] || page)
 
-  return <div className="app-shell">
+  return <div className={`app-shell ${theme === 'light' ? 'theme-light' : 'theme-dark'}`} data-theme={theme}>
     <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
       <div className="sidebar-brand"><Logo small /><button className="icon-button mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={17}/></button></div>
-      <div className="workspace-label"><span className="workspace-dot"/><span>TRADING WORKSPACE</span><ChevronDown size={13}/></div>
+      <div className="workspace-label"><span className="workspace-dot"/><span>{tr('workspace')}</span><ChevronDown size={13}/></div>
+      <button onClick={() => go('Settings')} className={`nav-link settings-nav-link ${page === 'Settings' ? 'active' : ''}`}><Settings2 size={16}/><span>{tr('settings')}</span></button>
       {['PLATFORM', 'LEARN', 'ACCOUNT', 'PREVIEW'].map(group => <div className="nav-group" key={group}>
-        <div className="nav-caption">{group}</div>
-        {nav.filter(n => n.group === group).map(item => { const Icon = item.icon; return <button key={item.label} onClick={() => go(item.label)} className={`nav-link ${page === item.label ? 'active' : ''}`}><Icon size={16}/><span>{item.label}</span>{item.label === 'Admin Panel' && <span className="tiny-label">ADMIN</span>}</button> })}
+        <div className="nav-caption">{tr(group.toLowerCase())}</div>
+        {nav.filter(n => n.group === group).map(item => { const Icon = item.icon; return <button key={item.label} onClick={() => go(item.label)} className={`nav-link ${page === item.label ? 'active' : ''}`}><Icon size={16}/><span>{tr(({ 'Overview':'overview', 'Market':'market', 'News & Calendar':'news', 'Academy':'academy', 'Analysis':'analysis', 'About':'about', 'Membership':'membership', 'Login / Register':'login', 'Admin Panel':'admin', 'Transactions':'transactions' } as Record<string,string>)[item.label] || item.label)}</span>{item.label === 'Admin Panel' && <span className="tiny-label">ADMIN</span>}</button> })}
       </div>)}
       <div className="sidebar-bottom">
         <div className="discipline-card"><div className="discipline-mark"><Zap size={16}/></div><div><b>Discipline over emotion.</b><span>Build your process.</span></div></div>
@@ -393,6 +407,24 @@ export default function App() {
 
       <div className="page-content">
         {notice && <div className="notice"><CircleHelp size={16}/><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X size={15}/></button></div>}
+
+        {page === 'Settings' && <>
+          <PageIntro kicker="00 / PREFERENCES" title={tr('settingsTitle')} desc={tr('settingsDesc')} />
+          <div className="settings-layout">
+            <section className="glass-panel settings-card">
+              <div className="settings-heading"><span className="settings-icon"><Globe2 size={17}/></span><div><h3>{tr('language')}</h3><p>{tr('languageDesc')}</p></div></div>
+              <div className="settings-options language-options">{[{id:'en',native:'English',label:'English'},{id:'id',native:'Bahasa Indonesia',label:'Indonesia'},{id:'ja',native:'日本語',label:'Japanese'},{id:'zh',native:'中文',label:'Chinese'},{id:'ar',native:'العربية',label:'Arabic'}].map(item => <button type="button" key={item.id} className={`setting-option ${language === item.id ? 'selected' : ''}`} onClick={() => setLanguage(item.id)}><span><b>{item.native}</b><small>{item.label}</small></span>{language === item.id && <Check size={16}/>}</button>)}</div>
+            </section>
+            <section className="glass-panel settings-card">
+              <div className="settings-heading"><span className="settings-icon"><Settings2 size={17}/></span><div><h3>{tr('appearance')}</h3><p>{tr('appearanceDesc')}</p></div></div>
+              <div className="theme-options">
+                <button type="button" className={`theme-option ${theme === 'dark' ? 'selected' : ''}`} onClick={() => setTheme('dark')}><span className="theme-preview theme-preview-dark"><span/><span/><span/></span><span className="theme-option-copy"><b>{tr('dark')}</b><small>{tr('darkDesc')}</small></span>{theme === 'dark' && <Check size={16}/>}</button>
+                <button type="button" className={`theme-option ${theme === 'light' ? 'selected' : ''}`} onClick={() => setTheme('light')}><span className="theme-preview theme-preview-light"><span/><span/><span/></span><span className="theme-option-copy"><b>{tr('light')}</b><small>{tr('lightDesc')}</small></span>{theme === 'light' && <Check size={16}/>}</button>
+              </div>
+            </section>
+            <div className="settings-saved"><Check size={14}/>{tr('saved')}</div>
+          </div>
+        </>}
 
         {page === 'Overview' && <>
           <section className="welcome-row"><div><div className="eyebrow"><span className="eyebrow-line"/> VELTRIX WARFARE <span className="eyebrow-muted">/ MARKET TERMINAL</span></div><h1>Clarity in the market.<br/><em>Discipline in every move.</em></h1><p className="lede">A structured workspace for market observation, trading education, and scenario planning.</p><div className="welcome-actions"><button className="button button-primary" onClick={() => go('Market')}>Explore market <ArrowRight size={15}/></button><button className="button button-quiet" onClick={() => go('Analysis')}>View insights</button></div></div><div className="hero-art"><div className="hero-orbit orbit-one"/><div className="hero-orbit orbit-two"/><div className="hero-v">V</div><div className="hero-caption"><span>VW / 001</span><span>DISCIPLINE OVER EMOTION</span></div></div></section>
