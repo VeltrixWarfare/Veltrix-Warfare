@@ -223,26 +223,29 @@ export default function App() {
 
     let alive = true
     setMembershipLoading(true)
-    void supabase.rpc('current_membership_access').then(({ data, error }) => {
-      if (!alive) return
-      if (error) {
+    void (async () => {
+      try {
+        const { data, error } = await supabase.rpc('current_membership_access')
+        if (!alive) return
+        if (error) {
+          setMembershipAccess({ active: false, plan: null, ends_at: null })
+          setNotice(`Gagal memeriksa akses membership: ${error.message}`)
+          return
+        }
+        const row = Array.isArray(data) ? data[0] : data
+        setMembershipAccess({
+          active: row?.is_active === true,
+          plan: row?.plan ?? null,
+          ends_at: row?.ends_at ?? null,
+        })
+      } catch (error: unknown) {
+        if (!alive) return
         setMembershipAccess({ active: false, plan: null, ends_at: null })
-        setNotice(`Gagal memeriksa akses membership: ${error.message}`)
-        return
+        setNotice(error instanceof Error ? error.message : 'Gagal memeriksa akses membership.')
+      } finally {
+        if (alive) setMembershipLoading(false)
       }
-      const row = Array.isArray(data) ? data[0] : data
-      setMembershipAccess({
-        active: row?.is_active === true,
-        plan: row?.plan ?? null,
-        ends_at: row?.ends_at ?? null,
-      })
-    }).catch((error: unknown) => {
-      if (!alive) return
-      setMembershipAccess({ active: false, plan: null, ends_at: null })
-      setNotice(error instanceof Error ? error.message : 'Gagal memeriksa akses membership.')
-    }).finally(() => {
-      if (alive) setMembershipLoading(false)
-    })
+    })()
 
     return () => { alive = false }
   }, [signedInEmail])
