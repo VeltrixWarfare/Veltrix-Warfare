@@ -68,11 +68,35 @@ export default function App() {
   const [adminMembers, setAdminMembers] = useState<AdminMember[]>([])
   const [adminError, setAdminError] = useState('')
   const [adminBusyUser, setAdminBusyUser] = useState<string | null>(null)
+  const [membershipAccess, setMembershipAccess] = useState<{ active: boolean; plan: string | null; ends_at: string | null }>({ active: false, plan: null, ends_at: null })
+  const [membershipLoading, setMembershipLoading] = useState(false)
   const [billing, setBilling] = useState<'Monthly' | 'Yearly'>('Monthly')
   const [query, setQuery] = useState('')
   const filteredInstruments = useMemo(() => marketInstruments.filter(i => (category === 'All' || i.category === category) && `${i.symbol} ${i.name}`.toLowerCase().includes(search.toLowerCase())), [marketInstruments, category, search])
   const filteredLessons = lessons.filter(l => lessonFilter === 'All' || l.level === lessonFilter)
-  const go = (next: Page) => { setPage(next); setMobileOpen(false); setNotice('') }
+  const go = (next: Page) => {
+    setMobileOpen(false)
+    if ((next === 'Academy' || next === 'Analysis') && membershipLoading) {
+      setNotice('Sedang memeriksa status membership. Coba lagi sebentar.')
+      return
+    }
+    if (next === 'Academy' && !membershipAccess.active) {
+      setPage('Membership')
+      setNotice(signedInEmail ? 'Akses Academy memerlukan membership aktif. Pilih paket atau hubungi admin.' : 'Login dan aktifkan membership untuk membuka Academy.')
+      return
+    }
+    if (next === 'Analysis' && (!membershipAccess.active || membershipAccess.plan === 'Essential')) {
+      setPage('Membership')
+      setNotice(!signedInEmail
+        ? 'Login dan aktifkan membership untuk membuka Analysis.'
+        : !membershipAccess.active
+          ? 'Akses Analysis memerlukan membership aktif.'
+          : 'Analysis tersedia untuk paket Advanced dan Private.')
+      return
+    }
+    setPage(next)
+    setNotice('')
+  }
   const action = (message: string) => setNotice(message)
   const toggleWatch = (symbol: string) => setWatchlist(old => old.includes(symbol) ? old.filter(s => s !== symbol) : [...old, symbol])
 
@@ -130,28 +154,32 @@ export default function App() {
         setAdminError('Login terlebih dahulu menggunakan akun admin.')
         return
       }
+
       const { data: allowed, error: roleError } = await supabase.rpc('is_admin')
-      if (roleError) throw new Error('Pemeriksaan hak admin gagal. Jalankan SQL admin_membership_setup.sql di Supabase.')
+      if (roleError) throw new Error(`Pemeriksaan hak admin gagal: ${roleError.message}`)
       if (allowed !== true) {
         setAdminAuthorized(false)
         setAdminMembers([])
         setAdminError('Akses ditolak. Akun ini belum memiliki role admin di database.')
         return
       }
+
       setAdminAuthorized(true)
-      const [{ data: profiles, error: profilesError }, { data: memberships, error: membershipsError }] = await Promise.all([
-        supabase.from('profiles').select('id,full_name,role,created_at').order('created_at', { ascending: false }),
-        supabase.from('memberships').select('user_id,plan,status,starts_at,ends_at,payment_reference'),
-      ])
-      if (profilesError) throw profilesError
-      if (membershipsError) throw membershipsError
-      const membershipByUser = new Map((memberships ?? []).map((m: any) => [m.user_id, m]))
-      setAdminMembers((profiles ?? []).map((profile: any) => {
-        const membership: any = membershipByUser.get(profile.id)
-        return { id: profile.id, full_name: profile.full_name, role: profile.role, created_at: profile.created_at, plan: membership?.plan ?? null, status: membership?.status ?? null, starts_at: membership?.starts_at ?? null, ends_at: membership?.ends_at ?? null, payment_reference: membership?.payment_reference ?? null }
-      }))
+      const { data, error } = await supabase.rpc('admin_list_memberships')
+      if (error) throw new Error(`Gagal memuat daftar membership: ${error.message}`)
+      setAdminMembers((data ?? []).map((row: any) => ({
+        id: row.id,
+        full_name: row.full_name,
+        role: row.role,
+        created_at: row.created_at,
+        plan: row.plan ?? null,
+        status: row.status ?? null,
+        starts_at: row.starts_at ?? null,
+        ends_at: row.ends_at ?? null,
+        payment_reference: row.payment_reference ?? null,
+      })))
     } catch (error) {
-      setAdminError(error instanceof Error ? error.message : 'Gagal memuat data admin.')
+      setAdminError(error instanceof Error ? error.message : String(error))
     } finally {
       setAdminLoading(false)
     }
@@ -166,23 +194,58 @@ export default function App() {
     setAdminBusyUser(member.id)
     setAdminError('')
     try {
-      const { error } = await supabase.from('memberships').upsert({
-        user_id: member.id,
-        plan: member.plan || 'Essential',
-        status: member.status || 'inactive',
-        starts_at: member.starts_at || null,
-        ends_at: member.ends_at || null,
-        payment_reference: member.payment_reference?.trim() || null,
-      }, { onConflict: 'user_id' })
-      if (error) throw error
+      const { error } = await supabase.rpc('admin_save_membership', {
+        p_user_id: member.id,
+        p_plan: member.plan || 'Essential',
+        p_status: member.status || 'inactive',
+        p_starts_at: member.starts_at || null,
+        p_ends_at: member.ends_at || null,
+        p_payment_reference: member.payment_reference?.trim() || null,
+      })
+      if (error) throw new Error(`Gagal menyimpan membership: ${error.message}`)
       action(`Membership ${member.full_name || member.id.slice(0, 8)} berhasil disimpan.`)
       await loadAdminData()
     } catch (error) {
-      setAdminError(error instanceof Error ? error.message : 'Gagal menyimpan membership. Periksa skema tabel memberships.')
+      const detail = error instanceof Error ? error.message : String(error)
+      console.error('Membership save failed:', error)
+      setAdminError(detail)
     } finally {
       setAdminBusyUser(null)
     }
   }
+
+  useEffect(() => {
+    if (!supabase || !signedInEmail) {
+      setMembershipAccess({ active: false, plan: null, ends_at: null })
+      setMembershipLoading(false)
+      return
+    }
+
+    let alive = true
+    setMembershipLoading(true)
+    void supabase.rpc('current_membership_access').then(({ data, error }) => {
+      if (!alive) return
+      if (error) {
+        setMembershipAccess({ active: false, plan: null, ends_at: null })
+        setNotice(`Gagal memeriksa akses membership: ${error.message}`)
+        return
+      }
+      const row = Array.isArray(data) ? data[0] : data
+      setMembershipAccess({
+        active: row?.is_active === true,
+        plan: row?.plan ?? null,
+        ends_at: row?.ends_at ?? null,
+      })
+    }).catch((error: unknown) => {
+      if (!alive) return
+      setMembershipAccess({ active: false, plan: null, ends_at: null })
+      setNotice(error instanceof Error ? error.message : 'Gagal memeriksa akses membership.')
+    }).finally(() => {
+      if (alive) setMembershipLoading(false)
+    })
+
+    return () => { alive = false }
+  }, [signedInEmail])
 
   useEffect(() => {
     if (page === 'Admin Panel') void loadAdminData()
@@ -349,7 +412,7 @@ export default function App() {
 
         {page === 'About' && <><PageIntro kicker="05 / OUR PHILOSOPHY" title="A framework built on discipline." desc="VELTRIX WARFARE is a concept for a structured trading and education workspace — designed to put clarity before impulse."/><div className="about-hero glass-panel"><div><span className="section-kicker">DISCIPLINE OVER EMOTION</span><h2>Observe.<br/>Calculate.<br/><em>Execute.</em></h2><p>Markets are uncertain. A process can still be deliberate. VELTRIX WARFARE brings market observation, structured learning, and scenario planning into one focused interface.</p></div><div className="about-symbol">V<span>VW / 01</span></div></div><div className="values-grid">{[{n:'01',t:'Clarity',d:'Keep information organized and distinguish facts from assumptions.'},{n:'02',t:'Discipline',d:'Build decisions around a defined process and risk limits.'},{n:'03',t:'Continuous learning',d:'Treat review and education as part of the work.'}].map(v=><div className="glass-panel value-card" key={v.n}><span>{v.n}</span><h3>{v.t}</h3><p>{v.d}</p></div>)}</div><p className="disclaimer">Trading involves substantial risk and may not be suitable for everyone. This interface is an educational frontend preview and does not provide investment advice.</p></>}
 
-        {page === 'Membership' && <><PageIntro kicker="06 / MEMBERSHIP" title="Choose your level of access." desc="Membership layout preview. No payment, subscription, or entitlement is active in this frontend version."/><div className="billing-row"><span>Billing period</span><div className="segmented">{(['Monthly','Yearly'] as const).map(b=><button key={b} className={billing===b?'selected':''} onClick={()=>setBilling(b)}>{b}{b==='Yearly'&&<small> SAVE 20%</small>}</button>)}</div></div><div className="pricing-grid">{[{name:'Essential',price:billing==='Monthly'?'79k':'758k',desc:'A focused starting point.',features:['Market overview','Learning library','Basic market notes']},{name:'Advanced',price:billing==='Monthly'?'149k':'1.430k',desc:'For a more structured workflow.',features:['Everything in Essential','Extended analysis library','Scenario frameworks','Advanced learning paths'],featured:true},{name:'Private',price:billing==='Monthly'?'299k':'2.870k',desc:'A comprehensive platform concept.',features:['Everything in Advanced','Premium research layout','Priority content access','Member features (planned)']}].map(p=><div className={`glass-panel price-card ${p.featured?'featured':''}`} key={p.name}>{p.featured&&<span className="popular-label">FEATURED PLAN</span>}<span className="section-kicker">{p.name.toUpperCase()} ACCESS</span><h3>{p.name}</h3><p>{p.desc}</p><div className="price"><b>Rp {p.price}</b><span>/{billing==='Monthly'?'month':'year'}</span></div><div className="price-divider"/>{p.features.map(f=><div className="feature-check" key={f}><Check size={15}/>{f}</div>)}<button className={`button ${p.featured?'button-primary':'button-outline'} full-button`} onClick={()=>action('Checkout is not enabled yet. A verified payment provider and server-side webhook must be configured before accepting payments.')}>Select plan <ArrowRight size={14}/></button></div>)}</div><p className="fine-print">All prices are placeholder examples for design review and are not an active offer.</p></>}
+        {page === 'Membership' && <><PageIntro kicker="06 / MEMBERSHIP" title="Choose your level of access." desc="Status membership diperiksa melalui database. Pembayaran otomatis belum aktif; admin mengatur aktivasi secara manual."/><div className="billing-row"><span>Billing period</span><div className="segmented">{(['Monthly','Yearly'] as const).map(b=><button key={b} className={billing===b?'selected':''} onClick={()=>setBilling(b)}>{b}{b==='Yearly'&&<small> SAVE 20%</small>}</button>)}</div></div><div className="pricing-grid">{[{name:'Essential',price:billing==='Monthly'?'79k':'758k',desc:'A focused starting point.',features:['Market overview','Learning library','Basic market notes']},{name:'Advanced',price:billing==='Monthly'?'149k':'1.430k',desc:'For a more structured workflow.',features:['Everything in Essential','Extended analysis library','Scenario frameworks','Advanced learning paths'],featured:true},{name:'Private',price:billing==='Monthly'?'299k':'2.870k',desc:'A comprehensive platform concept.',features:['Everything in Advanced','Premium research layout','Priority content access','Member features (planned)']}].map(p=><div className={`glass-panel price-card ${p.featured?'featured':''}`} key={p.name}>{p.featured&&<span className="popular-label">FEATURED PLAN</span>}<span className="section-kicker">{p.name.toUpperCase()} ACCESS</span><h3>{p.name}</h3><p>{p.desc}</p><div className="price"><b>Rp {p.price}</b><span>/{billing==='Monthly'?'month':'year'}</span></div><div className="price-divider"/>{p.features.map(f=><div className="feature-check" key={f}><Check size={15}/>{f}</div>)}<button className={`button ${p.featured?'button-primary':'button-outline'} full-button`} onClick={()=>action('Checkout is not enabled yet. A verified payment provider and server-side webhook must be configured before accepting payments.')}>Select plan <ArrowRight size={14}/></button></div>)}</div><p className="fine-print">All prices are placeholder examples for design review and are not an active offer.</p></>}
 
         {page === 'Login / Register' && <><PageIntro kicker="07 / ACCOUNT ACCESS" title="Your workspace starts here." desc="Sign in or create your VELTRIX WARFARE account securely."/><div className="auth-wrap"><div className="glass-panel auth-card"><Logo/>{signedInEmail ? <><div className="auth-tabs"><button className="selected" type="button">Account</button></div><h2>You are signed in.</h2><p className="muted">Signed in as {signedInEmail}</p><div className="auth-note"><ShieldCheck size={14}/> Account authenticated successfully.</div><button className="button button-outline full-button" type="button" disabled={authBusy} onClick={() => void handleLogout()}>{authBusy ? 'Please wait...' : 'Logout'}</button></> : <><div className="auth-tabs"><button type="button" className={authMode==='Login'?'selected':''} onClick={()=>setAuthMode('Login')}>Login</button><button type="button" className={authMode==='Create account'?'selected':''} onClick={()=>setAuthMode('Create account')}>Create account</button></div><h2>{authMode==='Login'?'Welcome back.':'Create your account.'}</h2><p className="muted">Access your VELTRIX WARFARE workspace.</p><form onSubmit={handleAuthSubmit}><label className="form-label">Email address<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required/></label>{authMode==='Create account'&&<label className="form-label">Display name<input type="text" value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="Your name" autoComplete="name" maxLength={80} required/></label>}<label className="form-label">Password<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} minLength={8} placeholder="At least 8 characters" autoComplete={authMode==='Login'?'current-password':'new-password'} required/></label>{authMode==='Login'&&<button type="button" className="forgot-link" disabled={authBusy} onClick={()=>void handlePasswordReset()}>Forgot password?</button>}<button className="button button-primary full-button" type="submit" disabled={authBusy}>{authBusy?'Please wait...':authMode==='Login'?'Continue':'Create account'} <ArrowRight size={14}/></button></form><div className="auth-note"><LockKeyhole size={14}/> {supabase ? 'Secure authentication powered by Supabase.' : 'Authentication requires Supabase configuration.'}</div></>}</div></div></>}
 
@@ -358,18 +421,18 @@ export default function App() {
           {!adminAuthorized ? <div className="glass-panel content-panel"><div className="panel-heading"><h3>Admin access required</h3><ShieldCheck size={18}/></div><p className="muted">{adminLoading ? 'Memeriksa sesi dan hak akses admin…' : adminError || 'Masuk menggunakan akun admin untuk membuka kontrol panel.'}</p><div className="welcome-actions"><button className="button button-primary" onClick={() => go('Login / Register')}>Open login <ArrowRight size={14}/></button><button className="button button-outline" disabled={adminLoading} onClick={() => void loadAdminData()}>{adminLoading ? 'Loading…' : 'Check access again'}</button></div></div> : <>
             <div className="demo-banner compact"><ShieldCheck size={16}/><span>ADMIN ACCESS VERIFIED · perubahan membership dicatat di Supabase.</span><button className="button button-outline" disabled={adminLoading} onClick={() => void loadAdminData()}><Activity size={14}/> Refresh</button></div>
             {adminError && <div className="demo-banner compact"><CircleHelp size={16}/><span>{adminError}</span></div>}
-            <div className="admin-metrics">{[{l:'Registered members',v:String(adminMembers.length),s:'Profiles in database'},{l:'Active memberships',v:String(adminMembers.filter(m=>m.status==='active').length),s:'Membership status active'},{l:'Inactive / no plan',v:String(adminMembers.filter(m=>m.status!=='active').length),s:'Includes accounts without membership'},{l:'Transactions',v:'—',s:'Payment integration not configured'}].map(m=><div className="glass-panel admin-metric" key={m.l}><span>{m.l}</span><b>{m.v}</b><small>{m.s}</small></div>)}</div>
+            <div className="admin-metrics">{[{l:'Registered members',v:String(adminMembers.length),s:'Profiles in database'},{l:'Active memberships',v:String(adminMembers.filter(m=>m.status==='active' && (!m.starts_at || new Date(m.starts_at).getTime() <= Date.now()) && (!m.ends_at || new Date(m.ends_at).getTime() > Date.now())).length),s:'Membership status active'},{l:'Inactive / no plan',v:String(adminMembers.filter(m=>m.status!=='active').length),s:'Includes accounts without membership'},{l:'Transactions',v:'—',s:'Payment integration not configured'}].map(m=><div className="glass-panel admin-metric" key={m.l}><span>{m.l}</span><b>{m.v}</b><small>{m.s}</small></div>)}</div>
             <div className="glass-panel transactions-panel"><div className="panel-heading"><div><span className="section-kicker">MEMBER DIRECTORY</span><h3>Accounts & membership</h3></div><Pill tone="silver">{adminMembers.length} ACCOUNTS</Pill></div>
-              {adminLoading ? <div className="empty-state large-empty"><b>Loading member data…</b></div> : adminMembers.length === 0 ? <div className="empty-state large-empty"><div className="empty-icon"><GraduationCap size={22}/></div><b>No member profiles found</b><span>Setelah user registrasi, profil akan tampil di sini jika trigger database berhasil.</span></div> : <div className="admin-member-list">{adminMembers.map(member=><div className="admin-member-row admin-member-row-editable" key={member.id}>
+              {adminLoading ? <div className="empty-state large-empty"><b>Loading member data…</b></div> : adminMembers.length === 0 ? <div className="empty-state large-empty"><div className="empty-icon"><GraduationCap size={22}/></div><b>No member profiles found</b><span>Setelah user registrasi, profil akan tampil di sini jika trigger database berhasil.</span></div> : <div className="admin-member-list">{adminMembers.map(member=><div className="admin-member-row" key={member.id}>
                 <div className="admin-member-info"><b>{member.full_name || 'Unnamed member'}</b><small>{member.id.slice(0,8)}… · joined {member.created_at ? new Date(member.created_at).toLocaleDateString() : 'unknown date'}</small><small>Role akun: {member.role.toUpperCase()} · role tidak berubah saat membership diedit</small></div>
-                <div className="admin-member-editor">
-                  <label className="form-label">Membership plan<select value={member.plan || 'Essential'} onChange={e=>editAdminMember(member.id,{plan:e.target.value})}><option value="Essential">Essential</option><option value="Advanced">Advanced</option><option value="Private">Private</option></select></label>
+                <div className="admin-member-actions" style={{display:'grid',gap:'8px',minWidth:'220px'}}>
+                  <label className="form-label">Plan<select value={member.plan || 'Essential'} onChange={e=>editAdminMember(member.id,{plan:e.target.value})}><option value="Essential">Essential</option><option value="Advanced">Advanced</option><option value="Private">Private</option></select></label>
                   <label className="form-label">Status<select value={member.status || 'inactive'} onChange={e=>editAdminMember(member.id,{status:e.target.value})}><option value="inactive">Inactive</option><option value="active">Active</option><option value="expired">Expired</option><option value="cancelled">Cancelled</option></select></label>
                   <label className="form-label">Start date<input type="date" value={member.starts_at ? member.starts_at.slice(0,10) : ''} onChange={e=>editAdminMember(member.id,{starts_at:e.target.value || null})}/></label>
                   <label className="form-label">End date<input type="date" value={member.ends_at ? member.ends_at.slice(0,10) : ''} onChange={e=>editAdminMember(member.id,{ends_at:e.target.value || null})}/></label>
-                  <label className="form-label admin-payment-reference">Payment reference<input type="text" value={member.payment_reference || ''} onChange={e=>editAdminMember(member.id,{payment_reference:e.target.value || null})} placeholder="Invoice / transfer reference" maxLength={120}/></label>
-                  <div className="admin-member-save"><Pill tone={member.status==='active'?'positive':member.status==='expired'||member.status==='cancelled'?'negative':'neutral'}>{(member.status || 'inactive').toUpperCase()}</Pill><button className="button button-primary" disabled={adminBusyUser===member.id || member.role==='admin'} onClick={()=>void updateAdminMember(member)}>{adminBusyUser===member.id?'Saving…':'Save membership'}</button></div>
-                  {member.role==='admin' && <small className="admin-member-warning">Akun admin dilindungi dari perubahan membership melalui panel ini.</small>}
+                  <label className="form-label">Payment reference<input type="text" value={member.payment_reference || ''} onChange={e=>editAdminMember(member.id,{payment_reference:e.target.value || null})} placeholder="Invoice / transfer reference" maxLength={120}/></label>
+                  <button className="button button-primary" disabled={adminBusyUser===member.id || member.role==='admin'} onClick={()=>void updateAdminMember(member)}>{adminBusyUser===member.id?'Saving…':'Save membership'}</button>
+                  {member.role==='admin' && <small className="muted">Admin account dilindungi dari perubahan membership.</small>}
                 </div>
               </div>)}</div>}
             </div>
