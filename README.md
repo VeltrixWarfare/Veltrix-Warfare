@@ -1,26 +1,31 @@
-# VELTRIX WARFARE
+# VELTRIX WARFARE — payment integration rebuild
 
-React + TypeScript + Vite frontend. The current UI design is retained.
+## Contents
+- `apply-payment-frontend.mjs`: adds checkout redirect and transaction history to the existing `src/App.tsx` without replacing the rest of the UI.
+- `supabase/migrations/202610290001_payment_integration.sql`: additive database migration; it does not drop existing tables.
 
-## Supabase setup
+## Apply frontend patch
+Run from the root of the existing repository:
 
-The Supabase client is prepared in `src/lib/supabase.ts`, but authentication, member tables, admin authorization, payments, news, economic calendar, and historical market data are not yet fully integrated. Do not treat the preview UI as production-ready.
-
-Set these variables in Vercel Project Settings → Environment Variables:
-- `VITE_SUPABASE_URL` — your Supabase Project URL
-- `VITE_SUPABASE_ANON_KEY` — your Supabase publishable key (the modern `sb_publishable_...` key is accepted here despite the variable's legacy name)
-
-Never place a Supabase `service_role` or secret key in frontend code or GitHub. Configure Row Level Security (RLS) before storing member data.
-
-## Build
-
-```sh
-npm install
+```bash
+node apply-payment-frontend.mjs
 npm run build
 ```
 
-The project pins the Vercel build runtime to Node.js 22.x. If deployment still fails, inspect the complete build log and fix the first actual error.
+The script intentionally stops if its expected anchors are not found, rather than overwriting a different version of the app.
 
-## Deploying from GitHub on Android
+## Apply database migration
+Review your existing `public.memberships` table in Supabase before running the migration. The activation function requires `user_id`, `plan`, `status`, `starts_at`, `ends_at`, and `payment_reference`. If your current table uses different names, stop and adapt the function to the real schema; do not delete or recreate the existing table.
 
-Vercel deploys the repository contents, not a ZIP uploaded as a file. Extract this archive first, then replace/add the project files in the repository while preserving the top-level folder structure. Do not upload the ZIP itself as the only project file.
+Run the SQL in Supabase SQL Editor. Then configure Vercel environment variables:
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` (server-only; never use a `VITE_` prefix)
+- `MIDTRANS_SERVER_KEY` (use Sandbox key for testing)
+- `MIDTRANS_IS_PRODUCTION=false`
+
+Set the Midtrans payment notification URL to `https://YOUR-DEPLOYMENT-DOMAIN/api/payment/webhook`.
+
+## Important
+- The UI patch only wires the frontend to the existing API endpoints. It is not proof that the complete flow works until SQL, Vercel environment variables, Midtrans notification URL, and a sandbox test are all verified.
+- Do not deploy real payments until the account/provider requirements and merchant identity are properly set up. Never expose server keys in frontend code.
