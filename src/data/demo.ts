@@ -9,15 +9,15 @@ export const instruments: Instrument[] = [
 ]
 
 export const news = [
-  { time: '08:30', title: 'Market structure: what traders should watch this session', tag: 'EDUCATION', impact: 'Medium', summary: 'A practical look at structure, momentum, and the key levels likely to shape the session.' },
-  { time: '10:00', title: 'Understanding USD strength across major pairs', tag: 'MARKET NOTE', impact: 'Low', summary: 'Review how dollar strength affects major FX pairs and how to frame the context.' },
-  { time: '13:30', title: 'Economic calendar: review official event releases', tag: 'CALENDAR', impact: 'High', summary: 'Check which releases may drive volatility and how to manage exposure around them.' },
-  { time: '15:00', title: 'Risk management: keeping a consistent process', tag: 'EDUCATION', impact: 'Medium', summary: 'A reminder that process, risk sizing, and consistency matter more than isolated outcomes.' },
+  { time: '08:30', title: 'Market structure: what traders should watch this session', tag: 'EDUCATION', impact: 'Medium' },
+  { time: '10:00', title: 'Understanding USD strength across major pairs', tag: 'MARKET NOTE', impact: 'Low' },
+  { time: '13:30', title: 'Economic calendar: review official event releases', tag: 'CALENDAR', impact: 'High' },
+  { time: '15:00', title: 'Risk management: keeping a consistent process', tag: 'EDUCATION', impact: 'Medium' },
 ]
 
 export const lessons = [
-  { title: 'Trading Foundations', level: 'Beginner', duration: '18 min', summary: 'Build a clear framework for markets, orders, and risk.', desc: 'Build a clear framework for markets, orders, and risk.' },
-  { title: 'Market Structure', level: 'Intermediate', duration: '24 min', summary: 'Read swings, breaks, and changing market conditions.', desc: 'Read swings, breaks, and changing market conditions.' },
-  { title: 'Liquidity Concepts', level: 'Intermediate', duration: '21 min', summary: 'Understand liquidity areas and common price reactions.', desc: 'Understand liquidity areas and common price reactions.' },
-  { title: 'Risk & Position Sizing', level: 'Beginner', duration: '16 min', summary: 'Plan risk before considering any trade idea.', desc: 'Plan risk before considering any trade idea.' },
+  { title: 'Trading Foundations', level: 'Beginner', duration: '18 min', desc: 'Build a clear framework for markets, orders, and risk.' },
+  { title: 'Market Structure', level: 'Intermediate', duration: '24 min', desc: 'Read swings, breaks, and changing market conditions.' },
+  { title: 'Liquidity Concepts', level: 'Intermediate', duration: '21 min', desc: 'Understand liquidity areas and common price reactions.' },
+  { title: 'Risk & Position Sizing', level: 'Beginner', duration: '16 min', desc: 'Plan risk before considering any trade idea.' },
 ]
