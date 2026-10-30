@@ -97,3 +97,7 @@
   .manual-payment-panel .panel-heading { align-items: flex-start; gap: 12px; }
   .payment-details h3 { font-size: 18px; }
 }
+
+/* Requested active-member indicator above the trading workspace label. */
+.member-count-label{display:flex;align-items:center;gap:8px;padding:9px 8px 0;color:#96989e;font:10px 'DM Mono',monospace;letter-spacing:.08em}
+.member-count-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#42c879;box-shadow:0 0 9px rgba(66,200,121,.55)}

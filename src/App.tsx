@@ -75,6 +75,8 @@ export default function App() {
   const [authBusy, setAuthBusy] = useState(false)
   const [adminLoading, setAdminLoading] = useState(false)
   const [adminAuthorized, setAdminAuthorized] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [adminRoleLoading, setAdminRoleLoading] = useState(false)
   const [adminMembers, setAdminMembers] = useState<AdminMember[]>([])
   const [adminError, setAdminError] = useState('')
   const [adminBusyUser, setAdminBusyUser] = useState<string | null>(null)
@@ -97,16 +99,20 @@ export default function App() {
   const filteredLessons = lessons.filter(l => lessonFilter === 'All' || l.level === lessonFilter)
   const go = (next: Page) => {
     setMobileOpen(false)
-    if ((next === 'Academy' || next === 'Analysis') && membershipLoading) {
+    if ((next === 'Academy' || next === 'Analysis') && adminRoleLoading) {
+      setNotice('Sedang memeriksa hak akses admin. Coba lagi sebentar.')
+      return
+    }
+    if ((next === 'Academy' || next === 'Analysis') && !isAdmin && membershipLoading) {
       setNotice('Sedang memeriksa status membership. Coba lagi sebentar.')
       return
     }
-    if (next === 'Academy' && !membershipAccess.active) {
+    if (next === 'Academy' && !isAdmin && !membershipAccess.active) {
       setPage('Membership')
       setNotice(signedInEmail ? 'Akses Academy memerlukan membership aktif. Pilih paket atau hubungi admin.' : 'Login dan aktifkan membership untuk membuka Academy.')
       return
     }
-    if (next === 'Analysis' && (!membershipAccess.active || membershipAccess.plan === 'Essential')) {
+    if (next === 'Analysis' && !isAdmin && (!membershipAccess.active || membershipAccess.plan === 'Essential')) {
       setPage('Membership')
       setNotice(!signedInEmail
         ? 'Login dan aktifkan membership untuk membuka Analysis.'
@@ -338,6 +344,27 @@ export default function App() {
   }
 
   useEffect(() => {
+    let alive = true
+    if (!supabase || !signedInEmail) {
+      setIsAdmin(false)
+      setAdminRoleLoading(false)
+      return
+    }
+    setAdminRoleLoading(true)
+    void supabase.rpc('is_admin').then(({ data, error }) => {
+      if (!alive) return
+      setIsAdmin(!error && data === true)
+      setAdminRoleLoading(false)
+    }).catch(() => {
+      if (alive) {
+        setIsAdmin(false)
+        setAdminRoleLoading(false)
+      }
+    })
+    return () => { alive = false }
+  }, [signedInEmail])
+
+  useEffect(() => {
     if (!supabase || !signedInEmail) {
       setMembershipAccess({ active: false, plan: null, ends_at: null })
       setMembershipLoading(false)
@@ -495,6 +522,7 @@ export default function App() {
   return <div className={`app-shell ${theme === 'light' ? 'theme-light' : 'theme-dark'}`} data-theme={theme}>
     <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
       <div className="sidebar-brand"><Logo small /><button className="icon-button mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={17}/></button></div>
+      <div className="member-count-label"><span className="member-count-dot"/><span>482 ACTIVE MEMBERS</span></div>
       <div className="workspace-label"><span className="workspace-dot"/><span>{tr('workspace')}</span><ChevronDown size={13}/></div>
       <button onClick={() => go('Settings')} className={`nav-link settings-nav-link ${page === 'Settings' ? 'active' : ''}`}><Settings2 size={16}/><span>{tr('settings')}</span></button>
       {['PLATFORM', 'LEARN', 'ACCOUNT', 'PREVIEW'].map(group => <div className="nav-group" key={group}>
