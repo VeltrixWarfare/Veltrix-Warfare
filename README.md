@@ -29,3 +29,10 @@ Set the Midtrans payment notification URL to `https://YOUR-DEPLOYMENT-DOMAIN/api
 ## Important
 - The UI patch only wires the frontend to the existing API endpoints. It is not proof that the complete flow works until SQL, Vercel environment variables, Midtrans notification URL, and a sandbox test are all verified.
 - Do not deploy real payments until the account/provider requirements and merchant identity are properly set up. Never expose server keys in frontend code.
+
+
+## Midtrans payment channel behavior
+
+The Snap create-transaction request intentionally omits `enabled_payments`. Midtrans then includes all payment channels that are active for this merchant in Snap Preferences. Enable/disable and reorder channels in the Midtrans Dashboard; no hard-coded channel allowlist is maintained in the website.
+
+The transaction row starts with `payment_method = 'pending'`. After a Midtrans notification is verified against the Status API, the webhook stores the actual `payment_type` returned by Midtrans. Test with a newly created Sandbox transaction after changing Snap Preferences; existing Snap sessions do not update retroactively.
