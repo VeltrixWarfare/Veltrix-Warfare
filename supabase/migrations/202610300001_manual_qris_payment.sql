@@ -28,8 +28,8 @@ alter table public.payment_transactions
 
 -- Payment proof files must live in a private Storage bucket.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('payment-proofs','payment-proofs',false,5242880,array['image/jpeg','image/png','image/webp'])
-on conflict (id) do update set public=false, file_size_limit=5242880,
+values ('payment-proofs','payment-proofs',false,3145728,array['image/jpeg','image/png','image/webp'])
+on conflict (id) do update set public=false, file_size_limit=3145728,
   allowed_mime_types=array['image/jpeg','image/png','image/webp'];
 
 alter table public.payment_transactions enable row level security;
@@ -50,7 +50,7 @@ drop policy if exists "member_read_own_payment_proof" on storage.objects;
 create policy "member_read_own_payment_proof" on storage.objects
   for select to authenticated using (
     bucket_id='payment-proofs' and (
-      (storage.foldername(name))[1] = auth.uid()::text or public.is_admin()
+      (storage.foldername(name))[1] = auth.uid()::text or exists (select 1 from public.profiles p where p.id=auth.uid() and lower(p.role)='admin')
     )
   );
 drop policy if exists "member_delete_own_payment_proof" on storage.objects;
@@ -70,7 +70,7 @@ declare existing_end timestamptz;
 declare duration interval;
 begin
   if p_decision not in ('approved','rejected') then raise exception 'Invalid decision'; end if;
-  if not exists(select 1 from public.profiles where id=p_admin_id and role='admin') then
+  if not exists(select 1 from public.profiles where id=p_admin_id and lower(role)='admin') then
     raise exception 'Admin authorization failed';
   end if;
   select * into tx from public.payment_transactions where order_id=p_order_id for update;
