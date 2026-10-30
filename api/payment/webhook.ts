@@ -39,6 +39,9 @@ export default async function handler(req: any, res: any) {
     const paid = verified.transaction_status === 'settlement' ||
       (verified.transaction_status === 'capture' && (!verified.fraud_status || verified.fraud_status === 'accept'))
     if (paid) {
+      await db.from('payment_transactions').update({
+        payment_method: verified.payment_type || 'unknown',
+      }).eq('order_id', String(order_id)).neq('status', 'paid')
       const { data, error } = await db.rpc('confirm_midtrans_payment', {
         p_order_id: String(order_id),
         p_payment_reference: String(verified.transaction_id || order_id),
@@ -49,7 +52,9 @@ export default async function handler(req: any, res: any) {
       const map: Record<string, string> = { pending: 'pending', deny: 'failed', cancel: 'cancelled', expire: 'expired', failure: 'failed' }
       const next = map[verified.transaction_status] || 'pending'
       await db.from('payment_transactions').update({
-        status: next, gateway_response: { transaction_status: verified.transaction_status, payment_type: verified.payment_type || null },
+        status: next,
+        payment_method: verified.payment_type || 'unknown',
+        gateway_response: { transaction_status: verified.transaction_status, payment_type: verified.payment_type || null },
       }).eq('order_id', String(order_id)).neq('status', 'paid')
     }
     return res.status(200).json({ received: true })

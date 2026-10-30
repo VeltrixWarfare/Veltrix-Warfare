@@ -31,7 +31,7 @@ export default async function handler(req: any, res: any) {
     const orderId = `VW-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
     const { error: insertError } = await db.from('payment_transactions').insert({
       order_id: orderId, user_id: authData.user.id, plan, billing_period: billing,
-      amount: product.amount, currency: 'IDR', status: 'pending', payment_method: 'qris',
+      amount: product.amount, currency: 'IDR', status: 'pending', payment_method: 'pending',
     })
     if (insertError) throw new Error(`Gagal membuat catatan transaksi: ${insertError.message}`)
 
@@ -45,7 +45,6 @@ export default async function handler(req: any, res: any) {
         transaction_details: { order_id: orderId, gross_amount: product.amount },
         item_details: [{ id: `${plan}-${billing}`, price: product.amount, quantity: 1, name: product.label }],
         customer_details: { email: authData.user.email || undefined },
-        enabled_payments: ['qris'],
         callbacks: { finish: `${origin}/?payment_return=1` },
       }),
     })
