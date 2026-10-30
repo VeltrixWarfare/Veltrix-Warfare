@@ -1,59 +1,61 @@
-VELTRIX WARFARE — PAYMENT INTEGRATION (SANDBOX FIRST)
+# VELTRIX WARFARE — Manual QRIS Membership Payments
 
-Isi:
-- api/payment/create.ts       Membuat transaksi Midtrans Snap QRIS di server.
-- api/payment/webhook.ts      Memverifikasi signature + status langsung ke Midtrans, lalu mengaktifkan membership.
-- api/payment/transactions.ts Riwayat transaksi hanya untuk user yang login.
-- supabase/payment_integration.sql Membuat tabel transaksi dan RPC aktivasi membership.
-- src/payment/checkout-snippet.tsx Potongan UI yang perlu dipasang ke src/App.tsx.
+## Flow
+Member selects a configured package -> backend creates a server-priced transaction -> site shows the original merchant QRIS -> member uploads a JPG/PNG/WEBP proof (max 5 MB) -> backend stores it in private Supabase Storage and emails the admin -> admin compares the payment in the official merchant app and approves/rejects -> only the server-side admin review RPC updates membership.
 
-PENTING:
-1. Integrasi ini tidak punya biaya langganan dari kode. Midtrans tetap dapat mengenakan biaya per transaksi ketika LIVE.
-2. Jangan aktifkan LIVE sampai akun merchant disetujui, kredensial LIVE tersedia, dan harga paket dikonfirmasi.
-3. Harga pada kode server sekarang menyalin harga contoh yang tampil di website: Essential 79.000/758.000; Advanced 149.000/1.430.000; Private 299.000/2.870.000. Pastikan harga final sebelum transaksi nyata.
-4. Membership hanya aktif dari webhook yang signature-nya valid dan statusnya diverifikasi langsung lewat Midtrans.
-5. Jalankan SQL hanya setelah memastikan tabel public.memberships memiliki kolom user_id, plan, status, starts_at, ends_at, payment_reference dan UNIQUE constraint pada user_id. Jika tidak, sesuaikan SQL terlebih dahulu.
-6. Jangan pernah memasukkan SUPABASE_SERVICE_ROLE_KEY atau MIDTRANS_SERVER_KEY ke variabel VITE_* atau frontend.
-7. Saya tidak bisa mengirim commit langsung ke GitHub karena integrasi repo menolak izin tulis (403). File ini perlu diunggah ke repo.
+A submitted screenshot is not proof of settlement. Do not approve until the actual merchant transaction has been checked.
 
-A. SUPABASE
-- Buka Supabase > SQL Editor.
-- Jalankan supabase/payment_integration.sql.
-- Pastikan sukses; jangan lanjut jika muncul error terkait skema memberships.
+## Supabase setup
+1. Back up the current Supabase project.
+2. Confirm the existing `profiles` table includes `id`, `full_name`, `role` and that `memberships` includes `user_id`, `plan`, `status`, `starts_at`, `ends_at`, `payment_reference`, `updated_at`. Existing admin setup is expected to define `public.is_admin()`.
+3. Run the migrations in order in `supabase/migrations/` if they have not already been applied. For an existing database, run the new `202610300001_manual_qris_payment.sql` migration after reviewing it. Do not blindly re-run old migration history.
+4. Confirm the Storage bucket `payment-proofs` is private. Migration sets a 5 MB file limit and allowed image types.
+5. Ensure your account has `profiles.role = 'admin'` using the exact registered account. Never promote a user based only on a request from the browser.
 
-B. GITHUB
-Unggah tiga file API ke path yang sama di repo:
-- api/payment/create.ts
-- api/payment/webhook.ts
-- api/payment/transactions.ts
+## Vercel environment variables
+Frontend:
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY` (public anon/publishable key only)
 
-Unggah SQL dan checkout snippet sebagai file dokumentasi bila diperlukan.
-Tambahkan handler checkout dari src/payment/checkout-snippet.tsx ke dalam function App() di src/App.tsx. Pada tombol setiap paket, panggil handleCheckout(p.name, billing). Ini satu perubahan frontend yang diperlukan agar tombol harga benar-benar membuka checkout.
+Server-only:
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `RESEND_API_KEY`
+- `PAYMENT_ADMIN_EMAIL`
+- `EMAIL_FROM` (sender on a domain verified with your email provider)
 
-C. VERCEL ENVIRONMENT VARIABLES
-Tambahkan di Project > Settings > Environment Variables:
-- SUPABASE_URL = URL proyek Supabase
-- SUPABASE_ANON_KEY = publishable/anon key Supabase
-- SUPABASE_SERVICE_ROLE_KEY = secret service role key (server only)
-- MIDTRANS_SERVER_KEY = Server Key dari MIDTRANS SANDBOX
-- MIDTRANS_IS_PRODUCTION = false
+Never put `SUPABASE_SERVICE_ROLE_KEY` or `RESEND_API_KEY` in a `VITE_*` variable or client code. Configure Preview first, then redeploy. Use a verified sender domain for production mail.
 
-Bisa juga pakai VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY yang sudah ada, tetapi service role dan Midtrans server key harus tanpa awalan VITE_.
-Set environment variables untuk Preview terlebih dahulu, lalu redeploy.
+## Merchant QRIS
+The website currently displays `public/qris-merchant.jpg` exactly as provided. The visible merchant identity in the image is not edited. To use VELTRIX WARFARE as the actual merchant name, request an official merchant-name update from the licensed QRIS acquirer/provider and replace the image only with the newly issued authentic QRIS. Test a small amount and check the transaction in the official merchant app.
 
-D. MIDTRANS SANDBOX
-- Buat akun merchant yang memenuhi ketentuan provider dan gunakan kredensial sandbox.
-- Di pengaturan notifikasi Midtrans, set Payment Notification URL ke:
-  https://veltrix-warfare.vercel.app/api/payment/webhook
-- Pastikan QRIS tersedia/diaktifkan untuk akun sandbox.
-- Tes dengan simulasi pembayaran sandbox saja. Jangan pakai uang asli saat MIDTRANS_IS_PRODUCTION=false.
+## Price configuration
+Current server prices are preserved from the project:
+- Essential: Rp79.000/month; Rp758.000/year
+- Advanced: Rp149.000/month; Rp1.430.000/year
+- Private: Rp299.000/month; Rp2.870.000/year
 
-E. UJI SEBELUM LIVE
-- Checkout hanya dapat dimulai setelah login.
-- Membuka URL sukses sendiri tidak mengaktifkan membership.
-- Webhook valid dengan status settlement harus mengubah transaksi menjadi paid dan mengaktifkan membership.
-- Webhook duplikat tidak boleh memperpanjang membership lagi.
-- Tes gagal/expired/pending dan pastikan membership tidak aktif.
-- Periksa schema tabel memberships dan coba SQL di staging jika tersedia.
+Confirm the final commercial prices before accepting real payments. Server-side prices are authoritative; browser values are ignored.
 
-Status: backend scaffold siap untuk integrasi sandbox, belum bisa disebut live/teruji sampai kredensial provider, SQL, webhook URL, dan build Vercel diverifikasi.
+## Email
+Create a Resend account owned/managed by the business owner/parent or guardian as appropriate, verify a sending domain, then set `RESEND_API_KEY`, `PAYMENT_ADMIN_EMAIL`, and `EMAIL_FROM` in Vercel. Email notification failure is logged server-side; check Vercel Function Logs. Configure monitoring and test delivery before going live.
+
+## Run / deploy
+- `npm install`
+- `npm run build`
+- Push the project to the connected Git repository or deploy the project directory using Vercel.
+- Set environment variables for Preview, deploy, and test with a test account before Production.
+
+## Important test checklist
+- Unauthenticated checkout is rejected.
+- Unknown plan / billing period is rejected.
+- Member cannot submit proof to another user's order.
+- Uploads accept only JPEG/PNG/WEBP up to 5 MB.
+- Duplicate proof submission is rejected.
+- Member sees only their own transactions.
+- Non-admin cannot access admin queue or review transactions.
+- Screenshot upload alone does not activate membership.
+- Admin approves only after verifying the actual merchant record.
+- Rejection does not activate membership.
+- Email delivery is checked in provider and Vercel logs.

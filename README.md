@@ -1,38 +1,61 @@
-# VELTRIX WARFARE — payment integration rebuild
+# VELTRIX WARFARE — Manual QRIS Membership Payments
 
-## Contents
-- `apply-payment-frontend.mjs`: adds checkout redirect and transaction history to the existing `src/App.tsx` without replacing the rest of the UI.
-- `supabase/migrations/202610290001_payment_integration.sql`: additive database migration; it does not drop existing tables.
+## Flow
+Member selects a configured package -> backend creates a server-priced transaction -> site shows the original merchant QRIS -> member uploads a JPG/PNG/WEBP proof (max 5 MB) -> backend stores it in private Supabase Storage and emails the admin -> admin compares the payment in the official merchant app and approves/rejects -> only the server-side admin review RPC updates membership.
 
-## Apply frontend patch
-Run from the root of the existing repository:
+A submitted screenshot is not proof of settlement. Do not approve until the actual merchant transaction has been checked.
 
-```bash
-node apply-payment-frontend.mjs
-npm run build
-```
+## Supabase setup
+1. Back up the current Supabase project.
+2. Confirm the existing `profiles` table includes `id`, `full_name`, `role` and that `memberships` includes `user_id`, `plan`, `status`, `starts_at`, `ends_at`, `payment_reference`, `updated_at`. Existing admin setup is expected to define `public.is_admin()`.
+3. Run the migrations in order in `supabase/migrations/` if they have not already been applied. For an existing database, run the new `202610300001_manual_qris_payment.sql` migration after reviewing it. Do not blindly re-run old migration history.
+4. Confirm the Storage bucket `payment-proofs` is private. Migration sets a 5 MB file limit and allowed image types.
+5. Ensure your account has `profiles.role = 'admin'` using the exact registered account. Never promote a user based only on a request from the browser.
 
-The script intentionally stops if its expected anchors are not found, rather than overwriting a different version of the app.
+## Vercel environment variables
+Frontend:
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY` (public anon/publishable key only)
 
-## Apply database migration
-Review your existing `public.memberships` table in Supabase before running the migration. The activation function requires `user_id`, `plan`, `status`, `starts_at`, `ends_at`, and `payment_reference`. If your current table uses different names, stop and adapt the function to the real schema; do not delete or recreate the existing table.
-
-Run the SQL in Supabase SQL Editor. Then configure Vercel environment variables:
+Server-only:
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY` (server-only; never use a `VITE_` prefix)
-- `MIDTRANS_SERVER_KEY` (use Sandbox key for testing)
-- `MIDTRANS_IS_PRODUCTION=false`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `RESEND_API_KEY`
+- `PAYMENT_ADMIN_EMAIL`
+- `EMAIL_FROM` (sender on a domain verified with your email provider)
 
-Set the Midtrans payment notification URL to `https://YOUR-DEPLOYMENT-DOMAIN/api/payment/webhook`.
+Never put `SUPABASE_SERVICE_ROLE_KEY` or `RESEND_API_KEY` in a `VITE_*` variable or client code. Configure Preview first, then redeploy. Use a verified sender domain for production mail.
 
-## Important
-- The UI patch only wires the frontend to the existing API endpoints. It is not proof that the complete flow works until SQL, Vercel environment variables, Midtrans notification URL, and a sandbox test are all verified.
-- Do not deploy real payments until the account/provider requirements and merchant identity are properly set up. Never expose server keys in frontend code.
+## Merchant QRIS
+The website currently displays `public/qris-merchant.jpg` exactly as provided. The visible merchant identity in the image is not edited. To use VELTRIX WARFARE as the actual merchant name, request an official merchant-name update from the licensed QRIS acquirer/provider and replace the image only with the newly issued authentic QRIS. Test a small amount and check the transaction in the official merchant app.
 
+## Price configuration
+Current server prices are preserved from the project:
+- Essential: Rp79.000/month; Rp758.000/year
+- Advanced: Rp149.000/month; Rp1.430.000/year
+- Private: Rp299.000/month; Rp2.870.000/year
 
-## Midtrans payment channel behavior
+Confirm the final commercial prices before accepting real payments. Server-side prices are authoritative; browser values are ignored.
 
-The Snap create-transaction request intentionally omits `enabled_payments`. Midtrans then includes all payment channels that are active for this merchant in Snap Preferences. Enable/disable and reorder channels in the Midtrans Dashboard; no hard-coded channel allowlist is maintained in the website.
+## Email
+Create a Resend account owned/managed by the business owner/parent or guardian as appropriate, verify a sending domain, then set `RESEND_API_KEY`, `PAYMENT_ADMIN_EMAIL`, and `EMAIL_FROM` in Vercel. Email notification failure is logged server-side; check Vercel Function Logs. Configure monitoring and test delivery before going live.
 
-The transaction row starts with `payment_method = 'pending'`. After a Midtrans notification is verified against the Status API, the webhook stores the actual `payment_type` returned by Midtrans. Test with a newly created Sandbox transaction after changing Snap Preferences; existing Snap sessions do not update retroactively.
+## Run / deploy
+- `npm install`
+- `npm run build`
+- Push the project to the connected Git repository or deploy the project directory using Vercel.
+- Set environment variables for Preview, deploy, and test with a test account before Production.
+
+## Important test checklist
+- Unauthenticated checkout is rejected.
+- Unknown plan / billing period is rejected.
+- Member cannot submit proof to another user's order.
+- Uploads accept only JPEG/PNG/WEBP up to 5 MB.
+- Duplicate proof submission is rejected.
+- Member sees only their own transactions.
+- Non-admin cannot access admin queue or review transactions.
+- Screenshot upload alone does not activate membership.
+- Admin approves only after verifying the actual merchant record.
+- Rejection does not activate membership.
+- Email delivery is checked in provider and Vercel logs.
