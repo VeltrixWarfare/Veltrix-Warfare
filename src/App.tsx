@@ -82,6 +82,13 @@ export default function App() {
   const [membershipLoading, setMembershipLoading] = useState(false)
   const [billing, setBilling] = useState<'Monthly' | 'Yearly'>('Monthly')
   const [paymentBusyPlan, setPaymentBusyPlan] = useState<string | null>(null)
+  const [activePayment, setActivePayment] = useState<{ order_id: string; plan: string; billing_period: string; amount: number; status: string } | null>(null)
+  const [proofFile, setProofFile] = useState<File | null>(null)
+  const [proofBusy, setProofBusy] = useState(false)
+  const [paymentHistory, setPaymentHistory] = useState<any[]>([])
+  const [adminPayments, setAdminPayments] = useState<any[]>([])
+  const [adminPaymentsBusy, setAdminPaymentsBusy] = useState(false)
+  const [adminDecisionBusy, setAdminDecisionBusy] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   useEffect(() => { try { localStorage.setItem('vw-language', language) } catch {} }, [language])
   useEffect(() => { try { localStorage.setItem('vw-theme', theme) } catch {} }, [theme])
@@ -152,39 +159,102 @@ export default function App() {
   }
 
   const handleCheckout = async (plan: string) => {
-    if (!supabase) {
-      action('Supabase belum terkonfigurasi. Periksa environment variables Vercel.')
-      return
-    }
-
+    if (!supabase) { action('Supabase belum terkonfigurasi. Periksa environment variables Vercel.'); return }
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     if (sessionError || !session?.access_token) {
       action('Login dulu sebelum memilih paket membership.')
       setPage('Login / Register')
       return
     }
-
     setPaymentBusyPlan(plan)
-    setNotice('')
     try {
       const response = await fetch('/api/payment/create', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({ plan, billing }),
       })
       const result = await response.json().catch(() => ({}))
-      if (!response.ok || typeof result.redirect_url !== 'string' || !result.redirect_url) {
-        throw new Error(result.error || 'Checkout gagal dibuat.')
-      }
-      window.location.assign(result.redirect_url)
+      if (!response.ok || !result.order_id) throw new Error(result.error || 'Transaksi gagal dibuat.')
+      setActivePayment(result)
+      setProofFile(null)
+      action('Transaksi dibuat. Selesaikan pembayaran QRIS lalu unggah bukti.')
     } catch (error) {
-      action(error instanceof Error ? error.message : 'Gagal memulai checkout.')
-    } finally {
-      setPaymentBusyPlan(null)
+      action(error instanceof Error ? error.message : 'Gagal membuat transaksi.')
+    } finally { setPaymentBusyPlan(null) }
+  }
+
+  const submitPaymentProof = async () => {
+    if (!supabase || !activePayment || !proofFile) { action('Pilih bukti pembayaran terlebih dahulu.'); return }
+    if (!['image/jpeg','image/png','image/webp'].includes(proofFile.type) || proofFile.size > 3 * 1024 * 1024) {
+      action('Bukti harus berupa JPG, PNG, atau WEBP maksimal 5 MB.'); return
     }
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) { action('Sesi login berakhir. Silakan login ulang.'); return }
+    setProofBusy(true)
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result || ''))
+        reader.onerror = () => reject(new Error('File tidak dapat dibaca.'))
+        reader.readAsDataURL(proofFile)
+      })
+      const base64 = dataUrl.split(',')[1]
+      const response = await fetch('/api/payment/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ order_id: activePayment.order_id, mime_type: proofFile.type, file_base64: base64 }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.error || 'Pengajuan bukti gagal.')
+      setActivePayment({ ...activePayment, status: 'pending_verification' })
+      setProofFile(null)
+      action('Bukti terkirim. Membership tetap menunggu verifikasi admin.')
+      void loadPaymentHistory()
+    } catch (error) { action(error instanceof Error ? error.message : 'Gagal mengirim bukti.') }
+    finally { setProofBusy(false) }
+  }
+
+  const loadPaymentHistory = async () => {
+    if (!supabase) return
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) return
+    const response = await fetch('/api/payment/transactions', { headers: { Authorization: `Bearer ${session.access_token}` } })
+    const result = await response.json().catch(() => ({}))
+    if (response.ok) setPaymentHistory(result.transactions || [])
+  }
+
+  const loadAdminPayments = async () => {
+    if (!supabase) return
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) return
+    setAdminPaymentsBusy(true)
+    try {
+      const response = await fetch('/api/payment/admin', { headers: { Authorization: `Bearer ${session.access_token}` } })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.error || 'Gagal memuat pembayaran.')
+      setAdminPayments(result.transactions || [])
+    } catch (error) { action(error instanceof Error ? error.message : 'Gagal memuat pembayaran.') }
+    finally { setAdminPaymentsBusy(false) }
+  }
+
+  const reviewPayment = async (orderId: string, decision: 'approved' | 'rejected') => {
+    if (!supabase) return
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) { action('Login admin diperlukan.'); return }
+    const reason = decision === 'rejected' ? window.prompt('Alasan penolakan (opsional):') || 'Silakan hubungi admin melalui kanal resmi.' : null
+    setAdminDecisionBusy(orderId)
+    try {
+      const response = await fetch('/api/payment/admin', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ order_id: orderId, decision, reason }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.error || 'Keputusan tidak dapat disimpan.')
+      action(`Pembayaran ${orderId}: ${decision.toUpperCase()}.`)
+      await loadAdminPayments()
+      await loadAdminData()
+    } catch (error) { action(error instanceof Error ? error.message : 'Verifikasi gagal.') }
+    finally { setAdminDecisionBusy(null) }
   }
 
   const loadAdminData = async () => {
@@ -484,7 +554,16 @@ export default function App() {
 
         {page === 'About' && <><PageIntro kicker="05 / OUR PHILOSOPHY" title="A framework built on discipline." desc="VELTRIX WARFARE is a concept for a structured trading and education workspace — designed to put clarity before impulse."/><div className="about-hero glass-panel"><div><span className="section-kicker">DISCIPLINE OVER EMOTION</span><h2>Observe.<br/>Calculate.<br/><em>Execute.</em></h2><p>Markets are uncertain. A process can still be deliberate. VELTRIX WARFARE brings market observation, structured learning, and scenario planning into one focused interface.</p></div><div className="about-symbol">V<span>VW / 01</span></div></div><div className="values-grid">{[{n:'01',t:'Clarity',d:'Keep information organized and distinguish facts from assumptions.'},{n:'02',t:'Discipline',d:'Build decisions around a defined process and risk limits.'},{n:'03',t:'Continuous learning',d:'Treat review and education as part of the work.'}].map(v=><div className="glass-panel value-card" key={v.n}><span>{v.n}</span><h3>{v.t}</h3><p>{v.d}</p></div>)}</div><p className="disclaimer">Trading involves substantial risk and may not be suitable for everyone. This interface is an educational frontend preview and does not provide investment advice.</p></>}
 
-        {page === 'Membership' && <><PageIntro kicker="06 / MEMBERSHIP" title="Choose your level of access." desc="Status membership diperiksa melalui database. Pembayaran otomatis belum aktif; admin mengatur aktivasi secara manual."/><div className="billing-row"><span>Billing period</span><div className="segmented">{(['Monthly','Yearly'] as const).map(b=><button key={b} className={billing===b?'selected':''} onClick={()=>setBilling(b)}>{b}{b==='Yearly'&&<small> SAVE 20%</small>}</button>)}</div></div><div className="pricing-grid">{[{name:'Essential',price:billing==='Monthly'?'79k':'758k',desc:'A focused starting point.',features:['Market overview','Learning library','Basic market notes']},{name:'Advanced',price:billing==='Monthly'?'149k':'1.430k',desc:'For a more structured workflow.',features:['Everything in Essential','Extended analysis library','Scenario frameworks','Advanced learning paths'],featured:true},{name:'Private',price:billing==='Monthly'?'299k':'2.870k',desc:'A comprehensive platform concept.',features:['Everything in Advanced','Premium research layout','Priority content access','Member features (planned)']}].map(p=><div className={`glass-panel price-card ${p.featured?'featured':''}`} key={p.name}>{p.featured&&<span className="popular-label">FEATURED PLAN</span>}<span className="section-kicker">{p.name.toUpperCase()} ACCESS</span><h3>{p.name}</h3><p>{p.desc}</p><div className="price"><b>Rp {p.price}</b><span>/{billing==='Monthly'?'month':'year'}</span></div><div className="price-divider"/>{p.features.map(f=><div className="feature-check" key={f}><Check size={15}/>{f}</div>)}<button className={`button ${p.featured?'button-primary':'button-outline'} full-button`} onClick={()=>void handleCheckout(p.name)} disabled={paymentBusyPlan!==null}>{paymentBusyPlan===p.name?'Preparing checkout…':'Select plan'} <ArrowRight size={14}/></button></div>)}</div><p className="fine-print">All prices are placeholder examples for design review and are not an active offer.</p></>}
+        {page === 'Membership' && <><PageIntro kicker="06 / MEMBERSHIP" title="Choose your level of access." desc="Pilih paket, bayar menggunakan QRIS, lalu unggah bukti untuk diverifikasi admin. Membership aktif setelah pembayaran dicocokkan."/><div className="billing-row"><span>Billing period</span><div className="segmented">{(['Monthly','Yearly'] as const).map(b=><button key={b} className={billing===b?'selected':''} onClick={()=>setBilling(b)}>{b}{b==='Yearly'&&<small> SAVE 20%</small>}</button>)}</div></div><div className="pricing-grid">{[{name:'Essential',price:billing==='Monthly'?'79k':'758k',desc:'A focused starting point.',features:['Market overview','Learning library','Basic market notes']},{name:'Advanced',price:billing==='Monthly'?'149k':'1.430k',desc:'For a more structured workflow.',features:['Everything in Essential','Extended analysis library','Scenario frameworks','Advanced learning paths'],featured:true},{name:'Private',price:billing==='Monthly'?'299k':'2.870k',desc:'A comprehensive platform concept.',features:['Everything in Advanced','Premium research layout','Priority content access','Member features (planned)']}].map(p=><div className={`glass-panel price-card ${p.featured?'featured':''}`} key={p.name}>{p.featured&&<span className="popular-label">FEATURED PLAN</span>}<span className="section-kicker">{p.name.toUpperCase()} ACCESS</span><h3>{p.name}</h3><p>{p.desc}</p><div className="price"><b>Rp {p.price}</b><span>/{billing==='Monthly'?'month':'year'}</span></div><div className="price-divider"/>{p.features.map(f=><div className="feature-check" key={f}><Check size={15}/>{f}</div>)}<button className={`button ${p.featured?'button-primary':'button-outline'} full-button`} onClick={()=>void handleCheckout(p.name)} disabled={paymentBusyPlan!==null}>{paymentBusyPlan===p.name?'Preparing checkout…':'Select plan'} <ArrowRight size={14}/></button></div>)}</div>
+          {activePayment && <section className="glass-panel manual-payment-panel">
+            <div className="panel-heading"><div><span className="section-kicker">SECURE CHECKOUT / MANUAL QRIS</span><h2>Complete your payment</h2></div><Pill tone="silver">{activePayment.status.replace(/_/g,' ').toUpperCase()}</Pill></div>
+            <div className="manual-payment-grid">
+              <div className="qris-card"><img src="/qris-merchant.jpg" alt="QRIS merchant asli — scan menggunakan aplikasi pembayaran" /><p className="muted">Gunakan gambar QRIS asli. Periksa nama merchant dan nominal di aplikasi pembayaran sebelum membayar.</p></div>
+              <div className="payment-details"><span className="section-kicker">VELTRIX WARFARE · DISCIPLINE OVER EMOTION</span><h3>{activePayment.plan} / {activePayment.billing_period}</h3><div className="payment-amount">Rp {activePayment.amount.toLocaleString('id-ID')}</div><div className="payment-id"><small>TRANSACTION ID</small><b>{activePayment.order_id}</b></div><ol className="payment-instructions"><li>Buka aplikasi bank atau e-wallet yang mendukung QRIS.</li><li>Scan QRIS dan periksa nama merchant pada aplikasi.</li><li>Bayar dengan nominal tepat seperti yang tertera.</li><li>Simpan bukti pembayaran, lalu unggah di bawah.</li></ol>
+              {activePayment.status === 'pending_verification' ? <div className="auth-note"><ShieldCheck size={15}/> Menunggu verifikasi admin. Membership belum aktif.</div> : <><label className="form-label">Payment proof · JPG / PNG / WEBP · maks. 3 MB<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>setProofFile(e.target.files?.[0] || null)} /></label><button className="button button-primary full-button" disabled={!proofFile || proofBusy} onClick={()=>void submitPaymentProof()}>{proofBusy?'Uploading proof…':'Submit payment proof'} <ArrowRight size={14}/></button></>}
+              <button className="button button-outline full-button" onClick={()=>{setActivePayment(null);setProofFile(null)}}>Close checkout</button></div></div>
+          </section>}
+          <p className="fine-print">Pembayaran hanya diverifikasi setelah admin mencocokkan transaksi pada aplikasi merchant resmi. Upload bukti tidak otomatis mengaktifkan membership.</p></>}
 
         {page === 'Login / Register' && <><PageIntro kicker="07 / ACCOUNT ACCESS" title="Your workspace starts here." desc="Sign in or create your VELTRIX WARFARE account securely."/><div className="auth-wrap"><div className="glass-panel auth-card"><Logo/>{signedInEmail ? <><div className="auth-tabs"><button className="selected" type="button">Account</button></div><h2>You are signed in.</h2><p className="muted">Signed in as {signedInEmail}</p><div className="auth-note"><ShieldCheck size={14}/> Account authenticated successfully.</div><button className="button button-outline full-button" type="button" disabled={authBusy} onClick={() => void handleLogout()}>{authBusy ? 'Please wait...' : 'Logout'}</button></> : <><div className="auth-tabs"><button type="button" className={authMode==='Login'?'selected':''} onClick={()=>setAuthMode('Login')}>Login</button><button type="button" className={authMode==='Create account'?'selected':''} onClick={()=>setAuthMode('Create account')}>Create account</button></div><h2>{authMode==='Login'?'Welcome back.':'Create your account.'}</h2><p className="muted">Access your VELTRIX WARFARE workspace.</p><form onSubmit={handleAuthSubmit}><label className="form-label">Email address<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required/></label>{authMode==='Create account'&&<label className="form-label">Display name<input type="text" value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="Your name" autoComplete="name" maxLength={80} required/></label>}<label className="form-label">Password<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} minLength={8} placeholder="At least 8 characters" autoComplete={authMode==='Login'?'current-password':'new-password'} required/></label>{authMode==='Login'&&<button type="button" className="forgot-link" disabled={authBusy} onClick={()=>void handlePasswordReset()}>Forgot password?</button>}<button className="button button-primary full-button" type="submit" disabled={authBusy}>{authBusy?'Please wait...':authMode==='Login'?'Continue':'Create account'} <ArrowRight size={14}/></button></form><div className="auth-note"><LockKeyhole size={14}/> {supabase ? 'Secure authentication powered by Supabase.' : 'Authentication requires Supabase configuration.'}</div></>}</div></div></>}
 
@@ -493,7 +572,7 @@ export default function App() {
           {!adminAuthorized ? <div className="glass-panel content-panel"><div className="panel-heading"><h3>Admin access required</h3><ShieldCheck size={18}/></div><p className="muted">{adminLoading ? 'Memeriksa sesi dan hak akses admin…' : adminError || 'Masuk menggunakan akun admin untuk membuka kontrol panel.'}</p><div className="welcome-actions"><button className="button button-primary" onClick={() => go('Login / Register')}>Open login <ArrowRight size={14}/></button><button className="button button-outline" disabled={adminLoading} onClick={() => void loadAdminData()}>{adminLoading ? 'Loading…' : 'Check access again'}</button></div></div> : <>
             <div className="demo-banner compact"><ShieldCheck size={16}/><span>ADMIN ACCESS VERIFIED · perubahan membership dicatat di Supabase.</span><button className="button button-outline" disabled={adminLoading} onClick={() => void loadAdminData()}><Activity size={14}/> Refresh</button></div>
             {adminError && <div className="demo-banner compact"><CircleHelp size={16}/><span>{adminError}</span></div>}
-            <div className="admin-metrics">{[{l:'Registered members',v:String(adminMembers.length),s:'Profiles in database'},{l:'Active memberships',v:String(adminMembers.filter(m=>m.status==='active' && (!m.starts_at || new Date(m.starts_at).getTime() <= Date.now()) && (!m.ends_at || new Date(m.ends_at).getTime() > Date.now())).length),s:'Membership status active'},{l:'Inactive / no plan',v:String(adminMembers.filter(m=>m.status!=='active').length),s:'Includes accounts without membership'},{l:'Transactions',v:'—',s:'Payment integration not configured'}].map(m=><div className="glass-panel admin-metric" key={m.l}><span>{m.l}</span><b>{m.v}</b><small>{m.s}</small></div>)}</div>
+            <div className="admin-metrics">{[{l:'Registered members',v:String(adminMembers.length),s:'Profiles in database'},{l:'Active memberships',v:String(adminMembers.filter(m=>m.status==='active' && (!m.starts_at || new Date(m.starts_at).getTime() <= Date.now()) && (!m.ends_at || new Date(m.ends_at).getTime() > Date.now())).length),s:'Membership status active'},{l:'Inactive / no plan',v:String(adminMembers.filter(m=>m.status!=='active').length),s:'Includes accounts without membership'},{l:'Transactions',v:String(adminPayments.length),s:'Manual QRIS review queue'}].map(m=><div className="glass-panel admin-metric" key={m.l}><span>{m.l}</span><b>{m.v}</b><small>{m.s}</small></div>)}</div>
             <div className="glass-panel transactions-panel"><div className="panel-heading"><div><span className="section-kicker">MEMBER DIRECTORY</span><h3>Accounts & membership</h3></div><Pill tone="silver">{adminMembers.length} ACCOUNTS</Pill></div>
               {adminLoading ? <div className="empty-state large-empty"><b>Loading member data…</b></div> : adminMembers.length === 0 ? <div className="empty-state large-empty"><div className="empty-icon"><GraduationCap size={22}/></div><b>No member profiles found</b><span>Setelah user registrasi, profil akan tampil di sini jika trigger database berhasil.</span></div> : <div className="admin-member-list">{adminMembers.map(member=><div className="admin-member-row" key={member.id}>
                 <div className="admin-member-info"><b>{member.full_name || 'Unnamed member'}</b><small>{member.id.slice(0,8)}… · joined {member.created_at ? new Date(member.created_at).toLocaleDateString() : 'unknown date'}</small><small>Role akun: {member.role.toUpperCase()} · role tidak berubah saat membership diedit</small></div>
@@ -508,11 +587,14 @@ export default function App() {
                 </div>
               </div>)}</div>}
             </div>
+            <div className="glass-panel transactions-panel admin-payment-review"><div className="panel-heading"><div><span className="section-kicker">MANUAL QRIS</span><h3>Payment verification queue</h3></div><button className="button button-outline" disabled={adminPaymentsBusy} onClick={()=>void loadAdminPayments()}>{adminPaymentsBusy?'Loading…':'Refresh queue'}</button></div>
+              {adminPayments.length===0 ? <div className="empty-state"><b>No submitted proofs loaded</b><span>Refresh queue to check payment submissions.</span></div> : <div className="admin-member-list">{adminPayments.map(tx=><div className="admin-member-row" key={tx.order_id}><div className="admin-member-info"><b>{tx.order_id}</b><small>{tx.plan} · {tx.billing_period} · Rp {Number(tx.amount).toLocaleString('id-ID')}</small><small>Member: {tx.user_id} · {tx.status}</small><small>{tx.created_at ? new Date(tx.created_at).toLocaleString('id-ID') : ''}</small>{tx.proof_url && <a className="text-link" href={tx.proof_url} target="_blank" rel="noreferrer">Open private proof <ArrowRight size={13}/></a>}</div><div className="admin-member-actions"><button className="button button-primary" disabled={adminDecisionBusy===tx.order_id || tx.status!=='pending_verification' || !tx.proof_url} onClick={()=>void reviewPayment(tx.order_id,'approved')}>{adminDecisionBusy===tx.order_id?'Saving…':'Approve payment'}</button><button className="button button-outline" disabled={adminDecisionBusy===tx.order_id || tx.status!=='pending_verification'} onClick={()=>void reviewPayment(tx.order_id,'rejected')}>Reject</button></div></div>)}</div>}
+            </div>
             <div className="two-column"><div className="glass-panel content-panel"><div className="panel-heading"><h3>Platform management</h3><Pill tone="silver">CONNECTED</Pill></div><div className="admin-action"><span className="admin-action-icon"><Wallet size={17}/></span><span><b>Membership plans</b><small>Essential, Advanced, Private · payment checkout still disabled</small></span></div><div className="admin-action"><span className="admin-action-icon"><Newspaper size={17}/></span><span><b>Content library</b><small>Content editor not implemented yet</small></span></div></div><div className="glass-panel content-panel"><div className="panel-heading"><h3>System status</h3><Activity size={16}/></div>{[{k:'Frontend',v:'Available'},{k:'Authentication',v:'Connected'},{k:'Database',v:'Connected'},{k:'Payment provider',v:'Not connected'}].map(x=><div className="system-row" key={x.k}><span>{x.k}</span><Pill tone={x.v==='Available'||x.v==='Connected'?'positive':'neutral'}>{x.v}</Pill></div>)}</div></div>
           </>}
         </>}
 
-        {page === 'Transactions' && <><PageIntro kicker="09 / ACCOUNT RECORDS" title="Transaction history." desc="No real transactions are available. The table below is intentionally empty until a verified backend is configured."/><div className="glass-panel transactions-panel"><div className="panel-heading"><div><span className="section-kicker">FINANCIAL RECORDS</span><h3>All transactions</h3></div><button className="button button-outline" onClick={()=>action('No transaction records exist in this frontend preview.')}><Filter size={14}/> Filter</button></div><div className="table-header transaction-head"><span>REFERENCE</span><span>DESCRIPTION</span><span>DATE</span><span>AMOUNT</span><span>STATUS</span></div><div className="empty-state large-empty"><div className="empty-icon"><FileText size={22}/></div><b>No transaction records</b><span>Transactions will appear here after a real payment and secure backend integration are implemented.</span></div></div></>}
+        {page === 'Transactions' && <><PageIntro kicker="09 / ACCOUNT RECORDS" title="Transaction history." desc="Pantau pengajuan QRIS dan status verifikasi pembayaran membership."/><div className="glass-panel transactions-panel"><div className="panel-heading"><div><span className="section-kicker">FINANCIAL RECORDS</span><h3>Your transactions</h3></div><button className="button button-outline" onClick={()=>void loadPaymentHistory()}><Activity size={14}/> Refresh</button></div>{paymentHistory.length===0 ? <div className="empty-state large-empty"><div className="empty-icon"><FileText size={22}/></div><b>No transaction records loaded</b><span>Tekan Refresh setelah login untuk memuat transaksi akun lu.</span></div> : <div className="admin-member-list">{paymentHistory.map(tx=><div className="admin-member-row" key={tx.order_id}><div className="admin-member-info"><b>{tx.order_id}</b><small>{tx.plan} · {tx.billing_period} · {new Date(tx.created_at).toLocaleString('id-ID')}</small>{tx.rejection_reason && <small>Catatan: {tx.rejection_reason}</small>}</div><div className="admin-member-actions"><b>Rp {Number(tx.amount).toLocaleString('id-ID')}</b><Pill tone={tx.status==='approved'?'positive':tx.status==='rejected'?'negative':'silver'}>{String(tx.status).replace(/_/g,' ').toUpperCase()}</Pill></div></div>)}</div>}</div></>}
       </div>
       <footer className="app-footer"><div><Logo small/><span>© 2026 VELTRIX WARFARE</span></div><span className="footer-disclaimer">Frontend preview · Demo data · Not financial advice</span><button onClick={()=>go('About')}>Platform information <ArrowRight size={13}/></button></footer>
     </main>

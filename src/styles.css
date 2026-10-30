@@ -73,3 +73,27 @@
 @media(max-width:1200px){[dir="rtl"] .main-area{margin-right:218px}}
 @media(max-width:900px){[dir="rtl"] .sidebar{transform:translateX(100%)}[dir="rtl"] .sidebar.sidebar-open{transform:translateX(0)}[dir="rtl"] .main-area{margin-right:0}}
 @media(max-width:620px){.settings-layout{grid-template-columns:1fr}.settings-card{padding:16px}.settings-saved{grid-column:auto}}
+
+
+/* Manual QRIS checkout — inherits the existing VELTRIX dark glass system */
+.manual-payment-panel { margin-top: 26px; padding: clamp(18px, 3vw, 30px); border: 1px solid rgba(115, 167, 255, .28); }
+.manual-payment-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 26px; align-items: start; }
+.qris-card { padding: 14px; border-radius: 16px; background: #f8f9fb; color: #18202b; }
+.qris-card img { display: block; width: 100%; max-width: 460px; height: auto; margin: 0 auto; border-radius: 8px; }
+.qris-card p { color: #657080; font-size: 12px; line-height: 1.6; margin: 12px 4px 2px; }
+.payment-details { min-width: 0; }
+.payment-details h3 { margin: 12px 0 8px; font-size: 21px; }
+.payment-amount { font-size: clamp(25px, 3vw, 36px); font-weight: 750; letter-spacing: -.04em; color: #dce8ff; margin: 12px 0 18px; }
+.payment-id { display: grid; gap: 6px; padding: 13px 15px; border: 1px solid var(--border, rgba(255,255,255,.12)); border-radius: 12px; background: rgba(255,255,255,.025); overflow-wrap: anywhere; }
+.payment-id small { color: #94a3b8; font-size: 10px; letter-spacing: .14em; }
+.payment-id b { font-size: 13px; }
+.payment-instructions { padding-left: 21px; margin: 18px 0; color: var(--muted, #a4adbb); font-size: 13px; line-height: 1.8; }
+.payment-details input[type=file] { width: 100%; margin-top: 9px; padding: 12px; border: 1px dashed rgba(130,160,210,.35); border-radius: 10px; background: rgba(255,255,255,.025); color: inherit; }
+.admin-payment-review { margin-top: 24px; }
+.admin-payment-review .admin-member-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+@media (max-width: 780px) {
+  .manual-payment-grid { grid-template-columns: minmax(0,1fr); }
+  .qris-card img { max-width: 360px; }
+  .manual-payment-panel .panel-heading { align-items: flex-start; gap: 12px; }
+  .payment-details h3 { font-size: 18px; }
+}
