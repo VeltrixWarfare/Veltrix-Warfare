@@ -59,3 +59,10 @@ Dependency installation timed out in this environment, so a complete `npm run bu
 4. Run `npm install` and `npm run build` locally or in CI.
 5. Test unauthenticated rejection, member ownership, upload size/type, duplicate proof prevention, admin authorization, rejection, approval, membership dates, email, and private proof access.
 6. Confirm the deployed site and repository no longer contain Midtrans code or credentials.
+
+
+## Important: existing Supabase schema compatibility
+This ZIP includes `supabase/migrations/202610300002_legacy_payment_compat.sql` for projects whose `payment_transactions` table was originally created for Midtrans. Apply this migration in Supabase SQL Editor after reviewing/backing up the database. It makes old Midtrans-only columns optional and removes legacy payment-method checks while preserving old rows. It does not enable membership based on proof upload.
+
+## QRIS asset
+The original merchant QRIS image provided for this project is included unchanged at `public/qris-merchant.jpg`. The app references this exact path. The image itself is not edited.
