@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js'
-
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
@@ -14,7 +13,7 @@ export default async function handler(req: any, res: any) {
   if (error || !data.user) return res.status(401).json({ error: 'Sesi login tidak valid.' })
   const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
   const result = await db.from('payment_transactions')
-    .select('order_id, plan, billing_period, amount, currency, status, payment_method, created_at, paid_at')
+    .select('order_id, plan, billing_period, amount, currency, status, payment_method, created_at, paid_at, rejection_reason')
     .eq('user_id', data.user.id).order('created_at', { ascending: false }).limit(50)
   if (result.error) return res.status(500).json({ error: 'Gagal memuat riwayat transaksi.' })
   return res.status(200).json({ transactions: result.data || [] })
