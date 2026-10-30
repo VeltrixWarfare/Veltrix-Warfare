@@ -29,6 +29,8 @@ const numberPrice = (n: number, digits = 2) => n.toLocaleString('en-US', { minim
 
 type LiveStatus = 'CONNECTING' | 'LIVE' | 'DAILY' | 'UNAVAILABLE'
 type AdminMember = { id: string; full_name: string | null; role: string; created_at: string; plan: string | null; status: string | null; starts_at: string | null; ends_at: string | null; payment_reference: string | null }
+type AccountProfile = { id: string; full_name: string | null; username: string | null; avatar_url: string | null; role: string }
+type AccountMembership = { plan: string | null; status: string | null; starts_at: string | null; ends_at: string | null }
 function initialMarketItems() {
   return instruments.map(item => ({ ...item, price: 'Connecting…', change: '—', status: 'CONNECTING' as LiveStatus, points: item.points }))
 }
@@ -72,6 +74,13 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState('')
   const [authName, setAuthName] = useState('')
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null)
+  const [signedInUserId, setSignedInUserId] = useState<string | null>(null)
+  const [accountProfile, setAccountProfile] = useState<AccountProfile | null>(null)
+  const [accountMembership, setAccountMembership] = useState<AccountMembership | null>(null)
+  const [profileName, setProfileName] = useState('')
+  const [profileUsername, setProfileUsername] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [avatarUploading, setAvatarUploading] = useState(false)
   const [authBusy, setAuthBusy] = useState(false)
   const [adminLoading, setAdminLoading] = useState(false)
   const [adminAuthorized, setAdminAuthorized] = useState(false)
@@ -407,6 +416,77 @@ export default function App() {
     if (page === 'Admin Panel') void loadAdminData()
   }, [page, signedInEmail])
 
+  useEffect(() => {
+    if (!supabase || !signedInUserId) {
+      setAccountProfile(null)
+      setAccountMembership(null)
+      setProfileName('')
+      setProfileUsername('')
+      return
+    }
+    let alive = true
+    void (async () => {
+      const [{ data: profile, error: profileError }, { data: membership, error: membershipError }] = await Promise.all([
+        supabase.from('profiles').select('id, full_name, username, avatar_url, role').eq('id', signedInUserId).maybeSingle(),
+        supabase.from('memberships').select('plan, status, starts_at, ends_at').eq('user_id', signedInUserId).maybeSingle(),
+      ])
+      if (!alive) return
+      if (profileError) {
+        setNotice(`Gagal memuat profil: ${profileError.message}. Jalankan migration profil terbaru di Supabase.`)
+      } else if (profile) {
+        const next = profile as AccountProfile
+        setAccountProfile(next)
+        setProfileName(next.full_name || '')
+        setProfileUsername(next.username || '')
+      }
+      if (membershipError) {
+        setNotice(`Gagal memuat detail membership: ${membershipError.message}`)
+      } else {
+        setAccountMembership((membership as AccountMembership | null) ?? null)
+      }
+    })()
+    return () => { alive = false }
+  }, [signedInUserId])
+
+  const handleProfileSave = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!supabase || !signedInUserId || !accountProfile) return
+    const username = profileUsername.trim().replace(/^@/, '').toLowerCase()
+    if (!/^[a-z0-9._]{3,24}$/.test(username)) {
+      action('Username harus 3–24 karakter dan hanya boleh berisi huruf kecil, angka, titik, atau garis bawah.')
+      return
+    }
+    setProfileSaving(true)
+    try {
+      const { data, error } = await supabase.from('profiles').update({ full_name: profileName.trim(), username }).eq('id', signedInUserId).select('id, full_name, username, avatar_url, role').single()
+      if (error) throw error
+      setAccountProfile(data as AccountProfile)
+      action('Profil berhasil diperbarui.')
+    } catch (error) {
+      action(error instanceof Error ? error.message : 'Gagal menyimpan profil.')
+    } finally { setProfileSaving(false) }
+  }
+
+  const handleAvatarUpload = async (file?: File) => {
+    if (!supabase || !signedInUserId || !file) return
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) { action('Format foto harus JPG, PNG, WEBP, atau GIF.'); return }
+    if (file.size > 3 * 1024 * 1024) { action('Ukuran foto maksimal 3 MB.'); return }
+    setAvatarUploading(true)
+    try {
+      const extension = file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+      const path = `${signedInUserId}/avatar-${Date.now()}.${extension}`
+      const { error: uploadError } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type, cacheControl: '3600' })
+      if (uploadError) throw uploadError
+      const { data } = supabase.storage.from('avatars').getPublicUrl(path)
+      const { data: updated, error: updateError } = await supabase.from('profiles').update({ avatar_url: data.publicUrl }).eq('id', signedInUserId).select('id, full_name, username, avatar_url, role').single()
+      if (updateError) throw updateError
+      setAccountProfile(updated as AccountProfile)
+      action('Foto profil berhasil diperbarui.')
+    } catch (error) {
+      action(error instanceof Error ? error.message : 'Upload foto profil gagal. Pastikan bucket avatars sudah dibuat di Supabase.')
+    } finally { setAvatarUploading(false) }
+  }
+
   const handlePasswordReset = async () => {
     if (!supabase) {
       action('Supabase belum terkonfigurasi.')
@@ -461,10 +541,12 @@ export default function App() {
         return
       }
       setSignedInEmail(data.session?.user.email ?? null)
+      setSignedInUserId(data.session?.user.id ?? null)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSignedInEmail(session?.user.email ?? null)
+      setSignedInUserId(session?.user.id ?? null)
     })
 
     return () => {
@@ -613,7 +695,7 @@ export default function App() {
           </section>}
         </>}
 
-        {page === 'Login / Register' && <><PageIntro kicker="07 / ACCOUNT ACCESS" title="Your workspace starts here." desc="Sign in or create your VELTRIX WARFARE account securely."/><div className="auth-wrap"><div className="glass-panel auth-card"><Logo/>{signedInEmail ? <><div className="auth-tabs"><button className="selected" type="button">Account</button></div><h2>You are signed in.</h2><p className="muted">Signed in as {signedInEmail}</p><div className="auth-note"><ShieldCheck size={14}/> Account authenticated successfully.</div><button className="button button-outline full-button" type="button" disabled={authBusy} onClick={() => void handleLogout()}>{authBusy ? 'Please wait...' : 'Logout'}</button></> : <><div className="auth-tabs"><button type="button" className={authMode==='Login'?'selected':''} onClick={()=>setAuthMode('Login')}>Login</button><button type="button" className={authMode==='Create account'?'selected':''} onClick={()=>setAuthMode('Create account')}>Create account</button></div><h2>{authMode==='Login'?'Welcome back.':'Create your account.'}</h2><p className="muted">Access your VELTRIX WARFARE workspace.</p><form onSubmit={handleAuthSubmit}><label className="form-label">Email address<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required/></label>{authMode==='Create account'&&<label className="form-label">Display name<input type="text" value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="Your name" autoComplete="name" maxLength={80} required/></label>}<label className="form-label">Password<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} minLength={8} placeholder="At least 8 characters" autoComplete={authMode==='Login'?'current-password':'new-password'} required/></label>{authMode==='Login'&&<button type="button" className="forgot-link" disabled={authBusy} onClick={()=>void handlePasswordReset()}>Forgot password?</button>}<button className="button button-primary full-button" type="submit" disabled={authBusy}>{authBusy?'Please wait...':authMode==='Login'?'Continue':'Create account'} <ArrowRight size={14}/></button></form><div className="auth-note"><LockKeyhole size={14}/> {supabase ? 'Secure authentication powered by Supabase.' : 'Authentication requires Supabase configuration.'}</div></>}</div></div></>}
+        {page === 'Login / Register' && <><PageIntro kicker="07 / ACCOUNT ACCESS" title="Your workspace starts here." desc="Sign in or create your VELTRIX WARFARE account securely."/><div className="auth-wrap"><div className="glass-panel auth-card"><Logo/>{signedInEmail ? <><div className="auth-tabs"><button className="selected" type="button">Account profile</button><button type="button" onClick={() => void handleLogout()} disabled={authBusy}>Logout</button></div><h2>Your account.</h2><p className="muted">Signed in as {signedInEmail}</p><div className="profile-summary"><div className="profile-avatar-wrap"><div className="profile-avatar">{accountProfile?.avatar_url ? <img src={accountProfile.avatar_url} alt="Profile"/> : <span>{(accountProfile?.full_name || signedInEmail).slice(0,1).toUpperCase()}</span>}</div><label className="button button-outline avatar-upload">{avatarUploading ? 'Uploading…' : 'Change photo'}<input type="file" accept="image/*" disabled={avatarUploading} onChange={e => { void handleAvatarUpload(e.target.files?.[0]); e.currentTarget.value = '' } }/></label></div><div className="profile-identity"><b>{accountProfile?.full_name || 'VELTRIX Member'}</b><span>@{accountProfile?.username || 'username'}</span><Pill tone={accountProfile?.role === 'admin' ? 'silver' : 'neutral'}>{accountProfile?.role === 'admin' ? 'ADMIN' : 'MEMBER'}</Pill></div></div><form onSubmit={handleProfileSave} className="profile-edit-form"><label className="form-label">Display name<input value={profileName} onChange={e=>setProfileName(e.target.value)} maxLength={80} placeholder="Your name" required/></label><label className="form-label">Username<input value={profileUsername} onChange={e=>setProfileUsername(e.target.value)} maxLength={24} placeholder="yourusername" required/><small className="field-hint">3–24 karakter · huruf kecil, angka, titik, garis bawah</small></label><button className="button button-primary full-button" type="submit" disabled={profileSaving || !accountProfile}>{profileSaving ? 'Saving…' : 'Save profile'} <Check size={14}/></button></form><div className="membership-profile"><div className="panel-heading"><div><span className="section-kicker">MEMBERSHIP DETAILS</span><h3>Account access</h3></div><Pill tone={accountMembership?.status === 'active' && (!accountMembership.starts_at || new Date(accountMembership.starts_at).getTime() <= Date.now()) && (!accountMembership.ends_at || new Date(accountMembership.ends_at).getTime() > Date.now()) ? 'positive' : 'neutral'}>{accountMembership?.status === 'active' && (!accountMembership.starts_at || new Date(accountMembership.starts_at).getTime() <= Date.now()) && (!accountMembership.ends_at || new Date(accountMembership.ends_at).getTime() > Date.now()) ? 'ACTIVE' : accountMembership?.status?.toUpperCase() || 'NOT ACTIVE'}</Pill></div><div className="membership-profile-grid"><div><small>ACTIVATED AS</small><b>{accountMembership?.plan || 'No membership'}</b></div><div><small>START DATE</small><b>{accountMembership?.starts_at ? new Date(accountMembership.starts_at).toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'}) : '—'}</b></div><div><small>END DATE</small><b>{accountMembership?.ends_at ? new Date(accountMembership.ends_at).toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'}) : '—'}</b></div></div></div><div className="auth-note"><ShieldCheck size={14}/> Role and membership status are read from Supabase.</div></> : <><div className="auth-tabs"><button type="button" className={authMode==='Login'?'selected':''} onClick={()=>setAuthMode('Login')}>Login</button><button type="button" className={authMode==='Create account'?'selected':''} onClick={()=>setAuthMode('Create account')}>Create account</button></div><h2>{authMode==='Login'?'Welcome back.':'Create your account.'}</h2><p className="muted">Access your VELTRIX WARFARE workspace.</p><form onSubmit={handleAuthSubmit}><label className="form-label">Email address<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required/></label>{authMode==='Create account'&&<label className="form-label">Display name<input type="text" value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="Your name" autoComplete="name" maxLength={80} required/></label>}<label className="form-label">Password<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} minLength={8} placeholder="At least 8 characters" autoComplete={authMode==='Login'?'current-password':'new-password'} required/></label>{authMode==='Login'&&<button type="button" className="forgot-link" disabled={authBusy} onClick={()=>void handlePasswordReset()}>Forgot password?</button>}<button className="button button-primary full-button" type="submit" disabled={authBusy}>{authBusy?'Please wait...':authMode==='Login'?'Continue':'Create account'} <ArrowRight size={14}/></button></form><div className="auth-note"><LockKeyhole size={14}/> {supabase ? 'Secure authentication powered by Supabase.' : 'Authentication requires Supabase configuration.'}</div></>}</div></div></>}
 
         {page === 'Admin Panel' && <>
           <PageIntro kicker="08 / CONTROL ROOM" title="Administration control room." desc="Kelola akun dan status membership yang tersimpan di database. Semua perubahan memerlukan role admin yang diverifikasi Supabase."/>
