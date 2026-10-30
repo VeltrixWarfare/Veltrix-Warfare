@@ -351,16 +351,19 @@ export default function App() {
       return
     }
     setAdminRoleLoading(true)
-    void supabase.rpc('is_admin').then(({ data, error }) => {
-      if (!alive) return
-      setIsAdmin(!error && data === true)
-      setAdminRoleLoading(false)
-    }).catch(() => {
-      if (alive) {
-        setIsAdmin(false)
+    void (async () => {
+      try {
+        const { data, error } = await supabase.rpc('is_admin')
+        if (!alive) return
+        setIsAdmin(!error && data === true)
         setAdminRoleLoading(false)
+      } catch {
+        if (alive) {
+          setIsAdmin(false)
+          setAdminRoleLoading(false)
+        }
       }
-    })
+    })()
     return () => { alive = false }
   }, [signedInEmail])
 
