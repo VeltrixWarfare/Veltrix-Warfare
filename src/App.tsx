@@ -101,7 +101,6 @@ export default function App() {
   const [adminPayments, setAdminPayments] = useState<any[]>([])
   const [adminPaymentsBusy, setAdminPaymentsBusy] = useState(false)
   const [adminDecisionBusy, setAdminDecisionBusy] = useState<string | null>(null)
-  const [adminPaymentFilter, setAdminPaymentFilter] = useState<'pending' | 'all'>('pending')
   const [query, setQuery] = useState('')
   useEffect(() => { try { localStorage.setItem('vw-language', language) } catch {} }, [language])
   useEffect(() => { try { localStorage.setItem('vw-theme', theme) } catch {} }, [theme])
@@ -261,12 +260,7 @@ export default function App() {
     if (!supabase) return
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.access_token) { action('Login admin diperlukan.'); return }
-    let reason: string | null = null
-    if (decision === 'rejected') {
-      const reasonInput = window.prompt('Alasan penolakan (opsional):')
-      if (reasonInput === null) return
-      reason = reasonInput.trim() || 'Silakan hubungi admin melalui kanal resmi.'
-    }
+    const reason = decision === 'rejected' ? window.prompt('Alasan penolakan (opsional):') || 'Silakan hubungi admin melalui kanal resmi.' : null
     setAdminDecisionBusy(orderId)
     try {
       const response = await fetch('/api/payment/admin', {
@@ -274,8 +268,9 @@ export default function App() {
         body: JSON.stringify({ order_id: orderId, decision, reason }),
       })
       const result = await response.json().catch(() => ({}))
-      if (!response.ok || result.success !== true) throw new Error(result.error || 'Keputusan tidak dapat disimpan.')
+      if (!response.ok) throw new Error(result.error || 'Keputusan tidak dapat disimpan.')
       action(`Pembayaran ${orderId}: ${decision.toUpperCase()}.`)
+      await loadAdminPayments()
       await loadAdminData()
     } catch (error) { action(error instanceof Error ? error.message : 'Verifikasi gagal.') }
     finally { setAdminDecisionBusy(null) }
@@ -322,7 +317,6 @@ export default function App() {
         ends_at: row.ends_at ?? null,
         payment_reference: row.payment_reference ?? null,
       })))
-      await loadAdminPayments()
     } catch (error) {
       setAdminError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -676,7 +670,7 @@ export default function App() {
 
         {page === 'Analysis' && <><PageIntro kicker="04 / TRADING INSIGHTS" title="Separate signal from noise." desc="An organized framework for reading market structure, mapping scenarios, and respecting invalidation."/><div className="analysis-layout"><div className="glass-panel analysis-main"><div className="panel-heading"><div><span className="section-kicker">MARKET STRUCTURE / EXAMPLE</span><h3>XAUUSD scenario board</h3></div><Pill tone="silver">ILLUSTRATIVE</Pill></div><div className="scenario-chart"><div className="level level-resistance"><span>Resistance zone · example</span></div><div className="scenario-candles">{Array.from({length:34},(_,i)=><span key={i} className={(i%5===0||i%7===0)?'down':''} style={{height:`${16+((i*23+i*i)%68)}%`,left:`${i*2.85}%`}}/>)}</div><div className="level level-support"><span>Support zone · example</span></div></div><div className="legend-row"><span><i className="legend-silver"/> Structure</span><span><i className="legend-dash"/> Example level</span><span className="muted">No live chart feed</span></div></div><div className="glass-panel analysis-side"><span className="section-kicker">SCENARIO FRAMEWORK</span><h3>Before any setup</h3>{[{n:'01',t:'Context',d:'Identify the broader structure and current range.'},{n:'02',t:'Liquidity',d:'Mark relevant areas without assuming a reaction.'},{n:'03',t:'Confirmation',d:'Define what evidence would support a scenario.'},{n:'04',t:'Invalidation',d:'State clearly what would make the idea invalid.'}].map(s=><div className="framework-row" key={s.n}><span>{s.n}</span><div><b>{s.t}</b><p>{s.d}</p></div></div>)}</div></div><div className="scenario-grid"><div className="glass-panel scenario-card"><Pill tone="positive">SCENARIO A</Pill><h3>Bullish case</h3><p>Illustrative conditional scenario, not a current signal.</p><ul><li>Price confirms strength above a defined level.</li><li>Retest holds within the planned risk.</li><li>Invalidation is defined before entry.</li></ul></div><div className="glass-panel scenario-card"><Pill tone="negative">SCENARIO B</Pill><h3>Bearish case</h3><p>Illustrative conditional scenario, not a current signal.</p><ul><li>Price rejects a defined resistance area.</li><li>Structure supports downside continuation.</li><li>Invalidation is defined before entry.</li></ul></div></div></>}
 
-        {page === 'About' && <><PageIntro kicker="05 / OUR PHILOSOPHY" title="A framework built on discipline." desc="VELTRIX WARFARE is a concept for a structured trading and education workspace — designed to put clarity before impulse."/><div className="about-hero glass-panel"><div><span className="section-kicker">DISCIPLINE OVER EMOTION</span><h2>Observe.<br/>Calculate.<br/><em>Execute.</em></h2><p>Markets are uncertain. A process can still be deliberate. VELTRIX WARFARE brings market observation, structured learning, and scenario planning into one focused interface.</p></div><div className="about-symbol">V<span>VW / 01</span></div></div><div className="values-grid">{[{n:'01',t:'Clarity',d:'Keep information organized and distinguish facts from assumptions.'},{n:'02',t:'Discipline',d:'Build decisions around a defined process and risk limits.'},{n:'03',t:'Continuous learning',d:'Treat review and education as part of the work.'}].map(v=><div className="glass-panel value-card" key={v.n}><span>{v.n}</span><h3>{v.t}</h3><p>{v.d}</p></div>)}</div><p className="disclaimer">Trading involves substantial risk and may not be suitable for everyone. This interface is an educational frontend preview and does not provide investment advice.</p></>}
+        {page === 'About' && <><PageIntro kicker="05 / ABOUT VELTRIX" title="Built for discipline. Driven by learning." desc="VELTRIX WARFARE is a trading-focused workspace for market observation, education, and structured decision-making. Clarity first. Risk always in view."/><div className="about-hero glass-panel"><div><span className="section-kicker">DISCIPLINE OVER EMOTION</span><h2>Observe.<br/>Calculate.<br/><em>Execute.</em></h2><p>We believe better decisions begin with a clear process. VELTRIX WARFARE brings market information, learning resources, and planning tools together in one focused environment. It is built to support your process—not to promise results.</p><a className="button button-primary about-contact-cta" href="https://whatsapp.com/channel/0029VbE447NHwXbJ6ZqLhI2w" target="_blank" rel="noreferrer">Hubungi Kami <ArrowRight size={15}/></a></div><div className="about-symbol">V<span>VW / 01</span></div></div><div className="values-grid">{[{n:'01',t:'Clarity',d:'Understand the information in front of you and separate facts from assumptions.'},{n:'02',t:'Discipline',d:'Build a repeatable process, define risk, and avoid decisions driven by emotion.'},{n:'03',t:'Continuous learning',d:'Review, learn, and improve your understanding of the market over time.'}].map(v=><div className="glass-panel value-card" key={v.n}><span>{v.n}</span><h3>{v.t}</h3><p>{v.d}</p></div>)}</div><section className="about-legal glass-panel"><div className="about-link-row"><a href="https://whatsapp.com/channel/0029VbE447NHwXbJ6ZqLhI2w" target="_blank" rel="noreferrer">Hubungi Kami <ArrowRight size={13}/></a><a href="#veltrix-privacy">Kebijakan Privasi</a><a href="#veltrix-legal">Dokumentasi Legal</a></div><div id="veltrix-privacy" className="about-legal-copy"><b>Kebijakan Privasi</b><p>VELTRIX WARFARE menghormati privasi pengguna. Informasi akun yang diberikan saat pendaftaran digunakan untuk mengelola akses, keanggotaan, keamanan, dan layanan platform. Jangan mengirimkan kata sandi, kode OTP, atau informasi pembayaran yang bersifat rahasia melalui kanal publik. Jika memiliki pertanyaan mengenai data akun, hubungi kami melalui kanal resmi.</p></div><div id="veltrix-legal" className="about-legal-copy"><b>Informasi dan Ketentuan</b><p>Konten di VELTRIX WARFARE disediakan untuk tujuan informasi dan edukasi. Materi, tampilan, analisis, dan contoh yang tersedia bukan rekomendasi investasi, ajakan membeli atau menjual instrumen keuangan, maupun jaminan keuntungan. Data pasar dapat tertunda, tidak lengkap, atau berbeda dari harga eksekusi broker. Pengguna bertanggung jawab untuk melakukan riset sendiri dan memahami risiko sebelum mengambil keputusan.</p><p><strong>Peringatan Risiko:</strong> Perdagangan Forex, CFD, aset kripto, dan instrumen berleverage memiliki risiko tinggi, termasuk kemungkinan kehilangan sebagian atau seluruh modal. Produk berleverage tidak cocok untuk semua orang. Gunakan manajemen risiko dan jangan pernah menggunakan dana yang tidak siap untuk hilang.</p></div><div className="about-copyright">© 2026 VELTRIX WARFARE · All rights reserved.</div></section></>}
 
         {page === 'Membership' && <><PageIntro kicker="06 / MEMBERSHIP" title="Choose your level of access." desc="Pilih paket, bayar menggunakan QRIS, lalu unggah bukti untuk diverifikasi admin. Membership aktif setelah pembayaran dicocokkan."/><div className="billing-row"><span>Billing period</span><div className="segmented">{(['Monthly','Yearly'] as const).map(b=><button key={b} className={billing===b?'selected':''} onClick={()=>setBilling(b)}>{b}{b==='Yearly'&&<small> SAVE 20%</small>}</button>)}</div></div><div className="pricing-grid">{[{name:'Essential',price:billing==='Monthly'?'79k':'758k',desc:'A focused starting point.',features:['Market overview','Learning library','Basic market notes']},{name:'Advanced',price:billing==='Monthly'?'149k':'1.430k',desc:'For a more structured workflow.',features:['Everything in Essential','Extended analysis library','Scenario frameworks','Advanced learning paths'],featured:true},{name:'Private',price:billing==='Monthly'?'299k':'2.870k',desc:'A comprehensive platform concept.',features:['Everything in Advanced','Premium research layout','Priority content access','Member features (planned)']}].map(p=><div className={`glass-panel price-card ${p.featured?'featured':''}`} key={p.name}>{p.featured&&<span className="popular-label">FEATURED PLAN</span>}<span className="section-kicker">{p.name.toUpperCase()} ACCESS</span><h3>{p.name}</h3><p>{p.desc}</p><div className="price"><b>Rp {p.price}</b><span>/{billing==='Monthly'?'month':'year'}</span></div><div className="price-divider"/>{p.features.map(f=><div className="feature-check" key={f}><Check size={15}/>{f}</div>)}<button className={`button ${p.featured?'button-primary':'button-outline'} full-button`} onClick={()=>void handleCheckout(p.name)} disabled={paymentBusyPlan!==null}>{paymentBusyPlan===p.name?'Preparing checkout…':'Select plan'} <ArrowRight size={14}/></button></div>)}</div>
           <p className="fine-print">Pembayaran hanya diverifikasi setelah admin mencocokkan transaksi pada aplikasi merchant resmi. Upload bukti tidak otomatis mengaktifkan membership.</p></>}
@@ -739,51 +733,8 @@ export default function App() {
                 <ChevronRight size={17}/>
               </button>)}</div>}
             </div>
-            <div className="glass-panel transactions-panel admin-payment-review">
-              <div className="panel-heading admin-payment-heading">
-                <div><span className="section-kicker">MANUAL QRIS / VERIFICATION</span><h3>Payment verification queue</h3><p className="muted">Periksa bukti dan detail transaksi sebelum mengambil keputusan.</p></div>
-                <button className="button button-outline" disabled={adminPaymentsBusy} onClick={()=>void loadAdminPayments()}>{adminPaymentsBusy?'Loading…':'Refresh queue'} <Activity size={14}/></button>
-              </div>
-              <div className="admin-payment-toolbar">
-                <div className="admin-payment-counts">
-                  <span><b>{adminPayments.filter(tx=>tx.status==='pending_verification').length}</b> Awaiting review</span>
-                  <span><b>{adminPayments.filter(tx=>tx.status==='approved').length}</b> Approved</span>
-                  <span><b>{adminPayments.filter(tx=>tx.status==='rejected').length}</b> Rejected</span>
-                </div>
-                <div className="admin-payment-filters">
-                  <button type="button" className={adminPaymentFilter==='pending'?'selected':''} onClick={()=>setAdminPaymentFilter('pending')}>Needs review</button>
-                  <button type="button" className={adminPaymentFilter==='all'?'selected':''} onClick={()=>setAdminPaymentFilter('all')}>All submissions</button>
-                </div>
-              </div>
-              {adminPaymentsBusy && adminPayments.length===0 ? <div className="empty-state"><b>Loading payment submissions…</b></div> :
-                (adminPaymentFilter==='pending' ? adminPayments.filter(tx=>tx.status==='pending_verification') : adminPayments).length===0
-                ? <div className="empty-state"><b>{adminPaymentFilter==='pending'?'No payments waiting for review':'No submitted payment proofs'}</b><span>{adminPaymentFilter==='pending'?'All submitted proofs have been reviewed.':'New QRIS submissions will appear here after a member uploads proof.'}</span></div>
-                : <div className="admin-payment-list">{(adminPaymentFilter==='pending' ? adminPayments.filter(tx=>tx.status==='pending_verification') : adminPayments).map(tx=>
-                  <article className="admin-payment-card" key={tx.order_id}>
-                    <div className="admin-payment-card-top">
-                      <div className="admin-payment-identity">
-                        <span className="section-kicker">TRANSACTION ID</span><b>{tx.order_id}</b>
-                        <small>{tx.customer_email || `Member ID: ${tx.user_id}`}</small>
-                      </div>
-                      <span className={`admin-payment-status ${tx.status==='approved'?'is-approved':tx.status==='rejected'?'is-rejected':'is-pending'}`}>{String(tx.status).replace(/_/g,' ')}</span>
-                    </div>
-                    <div className="admin-payment-card-body">
-                      <div className="admin-payment-facts">
-                        <div><small>MEMBERSHIP</small><b>{tx.plan} · {tx.billing_period}</b></div>
-                        <div><small>AMOUNT</small><b>Rp {Number(tx.amount).toLocaleString('id-ID')}</b></div>
-                        <div><small>SUBMITTED</small><b>{tx.proof_submitted_at ? new Date(tx.proof_submitted_at).toLocaleString('id-ID') : tx.created_at ? new Date(tx.created_at).toLocaleString('id-ID') : '—'}</b></div>
-                      </div>
-                      {tx.proof_url ? <a className="admin-proof-preview" href={tx.proof_url} target="_blank" rel="noreferrer"><img src={tx.proof_url} alt={`Payment proof for ${tx.order_id}`} loading="lazy"/><span><b>View payment proof</b><small>Private image · opens in new tab</small></span><ArrowRight size={15}/></a> : <div className="admin-proof-missing"><FileText size={16}/> Proof image unavailable or expired. Refresh queue to generate a new secure link.</div>}
-                    </div>
-                    <div className="admin-payment-card-footer">
-                      <span>{tx.status==='pending_verification'?'Confirm the payment in the merchant app before approving.':`Reviewed · ${tx.status}`}</span>
-                      <div className="admin-member-actions">
-                        <button className="button button-primary" disabled={adminDecisionBusy!==null || tx.status!=='pending_verification' || !tx.proof_url} onClick={()=>void reviewPayment(tx.order_id,'approved')}>{adminDecisionBusy===tx.order_id?'Saving…':'Approve payment'} <Check size={14}/></button>
-                        <button className="button button-outline" disabled={adminDecisionBusy!==null || tx.status!=='pending_verification'} onClick={()=>void reviewPayment(tx.order_id,'rejected')}>Reject <X size={14}/></button>
-                      </div>
-                    </div>
-                  </article>
-                )}</div>}
+            <div className="glass-panel transactions-panel admin-payment-review"><div className="panel-heading"><div><span className="section-kicker">MANUAL QRIS</span><h3>Payment verification queue</h3></div><button className="button button-outline" disabled={adminPaymentsBusy} onClick={()=>void loadAdminPayments()}>{adminPaymentsBusy?'Loading…':'Refresh queue'}</button></div>
+              {adminPayments.length===0 ? <div className="empty-state"><b>No submitted proofs loaded</b><span>Refresh queue to check payment submissions.</span></div> : <div className="admin-member-list">{adminPayments.map(tx=><div className="admin-member-row" key={tx.order_id}><div className="admin-member-info"><b>{tx.order_id}</b><small>{tx.plan} · {tx.billing_period} · Rp {Number(tx.amount).toLocaleString('id-ID')}</small><small>Member: {tx.user_id} · {tx.status}</small><small>{tx.created_at ? new Date(tx.created_at).toLocaleString('id-ID') : ''}</small>{tx.proof_url && <a className="text-link" href={tx.proof_url} target="_blank" rel="noreferrer">Open private proof <ArrowRight size={13}/></a>}</div><div className="admin-member-actions"><button className="button button-primary" disabled={adminDecisionBusy===tx.order_id || tx.status!=='pending_verification' || !tx.proof_url} onClick={()=>void reviewPayment(tx.order_id,'approved')}>{adminDecisionBusy===tx.order_id?'Saving…':'Approve payment'}</button><button className="button button-outline" disabled={adminDecisionBusy===tx.order_id || tx.status!=='pending_verification'} onClick={()=>void reviewPayment(tx.order_id,'rejected')}>Reject</button></div></div>)}</div>}
             </div>
             <div className="two-column"><div className="glass-panel content-panel"><div className="panel-heading"><h3>Platform management</h3><Pill tone="silver">CONNECTED</Pill></div><div className="admin-action"><span className="admin-action-icon"><Wallet size={17}/></span><span><b>Membership plans</b><small>Essential, Advanced, Private · payment checkout still disabled</small></span></div><div className="admin-action"><span className="admin-action-icon"><Newspaper size={17}/></span><span><b>Content library</b><small>Content editor not implemented yet</small></span></div></div><div className="glass-panel content-panel"><div className="panel-heading"><h3>System status</h3><Activity size={16}/></div>{[{k:'Frontend',v:'Available'},{k:'Authentication',v:'Connected'},{k:'Database',v:'Connected'},{k:'Payment provider',v:'Not connected'}].map(x=><div className="system-row" key={x.k}><span>{x.k}</span><Pill tone={x.v==='Available'||x.v==='Connected'?'positive':'neutral'}>{x.v}</Pill></div>)}</div></div>
           </>}
