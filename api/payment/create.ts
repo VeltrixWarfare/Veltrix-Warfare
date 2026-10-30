@@ -33,7 +33,7 @@ export default async function handler(req: any, res: any) {
     if (error) throw error
     return res.status(201).json({ order_id: orderId, plan, billing_period: billing, amount: product.amount, currency: 'IDR', status: 'awaiting_payment' })
   } catch (error: any) {
-    console.error('Manual payment create failed:', error?.message || error)
+    console.error('Manual payment create failed:', { message: error?.message || String(error), code: error?.code, details: error?.details, hint: error?.hint })
     return res.status(500).json({ error: 'Gagal membuat transaksi. Coba lagi.' })
   }
 }
