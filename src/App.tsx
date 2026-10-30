@@ -81,6 +81,7 @@ export default function App() {
   const [membershipAccess, setMembershipAccess] = useState<{ active: boolean; plan: string | null; ends_at: string | null }>({ active: false, plan: null, ends_at: null })
   const [membershipLoading, setMembershipLoading] = useState(false)
   const [billing, setBilling] = useState<'Monthly' | 'Yearly'>('Monthly')
+  const [paymentBusyPlan, setPaymentBusyPlan] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   useEffect(() => { try { localStorage.setItem('vw-language', language) } catch {} }, [language])
   useEffect(() => { try { localStorage.setItem('vw-theme', theme) } catch {} }, [theme])
@@ -147,6 +148,42 @@ export default function App() {
       action(error instanceof Error ? error.message : 'Terjadi kesalahan autentikasi.')
     } finally {
       setAuthBusy(false)
+    }
+  }
+
+  const handleCheckout = async (plan: string) => {
+    if (!supabase) {
+      action('Supabase belum terkonfigurasi. Periksa environment variables Vercel.')
+      return
+    }
+
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError || !session?.access_token) {
+      action('Login dulu sebelum memilih paket membership.')
+      setPage('Login / Register')
+      return
+    }
+
+    setPaymentBusyPlan(plan)
+    setNotice('')
+    try {
+      const response = await fetch('/api/payment/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ plan, billing }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || typeof result.redirect_url !== 'string' || !result.redirect_url) {
+        throw new Error(result.error || 'Checkout gagal dibuat.')
+      }
+      window.location.assign(result.redirect_url)
+    } catch (error) {
+      action(error instanceof Error ? error.message : 'Gagal memulai checkout.')
+    } finally {
+      setPaymentBusyPlan(null)
     }
   }
 
@@ -447,7 +484,7 @@ export default function App() {
 
         {page === 'About' && <><PageIntro kicker="05 / OUR PHILOSOPHY" title="A framework built on discipline." desc="VELTRIX WARFARE is a concept for a structured trading and education workspace — designed to put clarity before impulse."/><div className="about-hero glass-panel"><div><span className="section-kicker">DISCIPLINE OVER EMOTION</span><h2>Observe.<br/>Calculate.<br/><em>Execute.</em></h2><p>Markets are uncertain. A process can still be deliberate. VELTRIX WARFARE brings market observation, structured learning, and scenario planning into one focused interface.</p></div><div className="about-symbol">V<span>VW / 01</span></div></div><div className="values-grid">{[{n:'01',t:'Clarity',d:'Keep information organized and distinguish facts from assumptions.'},{n:'02',t:'Discipline',d:'Build decisions around a defined process and risk limits.'},{n:'03',t:'Continuous learning',d:'Treat review and education as part of the work.'}].map(v=><div className="glass-panel value-card" key={v.n}><span>{v.n}</span><h3>{v.t}</h3><p>{v.d}</p></div>)}</div><p className="disclaimer">Trading involves substantial risk and may not be suitable for everyone. This interface is an educational frontend preview and does not provide investment advice.</p></>}
 
-        {page === 'Membership' && <><PageIntro kicker="06 / MEMBERSHIP" title="Choose your level of access." desc="Status membership diperiksa melalui database. Pembayaran otomatis belum aktif; admin mengatur aktivasi secara manual."/><div className="billing-row"><span>Billing period</span><div className="segmented">{(['Monthly','Yearly'] as const).map(b=><button key={b} className={billing===b?'selected':''} onClick={()=>setBilling(b)}>{b}{b==='Yearly'&&<small> SAVE 20%</small>}</button>)}</div></div><div className="pricing-grid">{[{name:'Essential',price:billing==='Monthly'?'79k':'758k',desc:'A focused starting point.',features:['Market overview','Learning library','Basic market notes']},{name:'Advanced',price:billing==='Monthly'?'149k':'1.430k',desc:'For a more structured workflow.',features:['Everything in Essential','Extended analysis library','Scenario frameworks','Advanced learning paths'],featured:true},{name:'Private',price:billing==='Monthly'?'299k':'2.870k',desc:'A comprehensive platform concept.',features:['Everything in Advanced','Premium research layout','Priority content access','Member features (planned)']}].map(p=><div className={`glass-panel price-card ${p.featured?'featured':''}`} key={p.name}>{p.featured&&<span className="popular-label">FEATURED PLAN</span>}<span className="section-kicker">{p.name.toUpperCase()} ACCESS</span><h3>{p.name}</h3><p>{p.desc}</p><div className="price"><b>Rp {p.price}</b><span>/{billing==='Monthly'?'month':'year'}</span></div><div className="price-divider"/>{p.features.map(f=><div className="feature-check" key={f}><Check size={15}/>{f}</div>)}<button className={`button ${p.featured?'button-primary':'button-outline'} full-button`} onClick={()=>action('Checkout is not enabled yet. A verified payment provider and server-side webhook must be configured before accepting payments.')}>Select plan <ArrowRight size={14}/></button></div>)}</div><p className="fine-print">All prices are placeholder examples for design review and are not an active offer.</p></>}
+        {page === 'Membership' && <><PageIntro kicker="06 / MEMBERSHIP" title="Choose your level of access." desc="Status membership diperiksa melalui database. Pembayaran otomatis belum aktif; admin mengatur aktivasi secara manual."/><div className="billing-row"><span>Billing period</span><div className="segmented">{(['Monthly','Yearly'] as const).map(b=><button key={b} className={billing===b?'selected':''} onClick={()=>setBilling(b)}>{b}{b==='Yearly'&&<small> SAVE 20%</small>}</button>)}</div></div><div className="pricing-grid">{[{name:'Essential',price:billing==='Monthly'?'79k':'758k',desc:'A focused starting point.',features:['Market overview','Learning library','Basic market notes']},{name:'Advanced',price:billing==='Monthly'?'149k':'1.430k',desc:'For a more structured workflow.',features:['Everything in Essential','Extended analysis library','Scenario frameworks','Advanced learning paths'],featured:true},{name:'Private',price:billing==='Monthly'?'299k':'2.870k',desc:'A comprehensive platform concept.',features:['Everything in Advanced','Premium research layout','Priority content access','Member features (planned)']}].map(p=><div className={`glass-panel price-card ${p.featured?'featured':''}`} key={p.name}>{p.featured&&<span className="popular-label">FEATURED PLAN</span>}<span className="section-kicker">{p.name.toUpperCase()} ACCESS</span><h3>{p.name}</h3><p>{p.desc}</p><div className="price"><b>Rp {p.price}</b><span>/{billing==='Monthly'?'month':'year'}</span></div><div className="price-divider"/>{p.features.map(f=><div className="feature-check" key={f}><Check size={15}/>{f}</div>)}<button className={`button ${p.featured?'button-primary':'button-outline'} full-button`} onClick={()=>void handleCheckout(p.name)} disabled={paymentBusyPlan!==null}>{paymentBusyPlan===p.name?'Preparing checkout…':'Select plan'} <ArrowRight size={14}/></button></div>)}</div><p className="fine-print">All prices are placeholder examples for design review and are not an active offer.</p></>}
 
         {page === 'Login / Register' && <><PageIntro kicker="07 / ACCOUNT ACCESS" title="Your workspace starts here." desc="Sign in or create your VELTRIX WARFARE account securely."/><div className="auth-wrap"><div className="glass-panel auth-card"><Logo/>{signedInEmail ? <><div className="auth-tabs"><button className="selected" type="button">Account</button></div><h2>You are signed in.</h2><p className="muted">Signed in as {signedInEmail}</p><div className="auth-note"><ShieldCheck size={14}/> Account authenticated successfully.</div><button className="button button-outline full-button" type="button" disabled={authBusy} onClick={() => void handleLogout()}>{authBusy ? 'Please wait...' : 'Logout'}</button></> : <><div className="auth-tabs"><button type="button" className={authMode==='Login'?'selected':''} onClick={()=>setAuthMode('Login')}>Login</button><button type="button" className={authMode==='Create account'?'selected':''} onClick={()=>setAuthMode('Create account')}>Create account</button></div><h2>{authMode==='Login'?'Welcome back.':'Create your account.'}</h2><p className="muted">Access your VELTRIX WARFARE workspace.</p><form onSubmit={handleAuthSubmit}><label className="form-label">Email address<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required/></label>{authMode==='Create account'&&<label className="form-label">Display name<input type="text" value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="Your name" autoComplete="name" maxLength={80} required/></label>}<label className="form-label">Password<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} minLength={8} placeholder="At least 8 characters" autoComplete={authMode==='Login'?'current-password':'new-password'} required/></label>{authMode==='Login'&&<button type="button" className="forgot-link" disabled={authBusy} onClick={()=>void handlePasswordReset()}>Forgot password?</button>}<button className="button button-primary full-button" type="submit" disabled={authBusy}>{authBusy?'Please wait...':authMode==='Login'?'Continue':'Create account'} <ArrowRight size={14}/></button></form><div className="auth-note"><LockKeyhole size={14}/> {supabase ? 'Secure authentication powered by Supabase.' : 'Authentication requires Supabase configuration.'}</div></>}</div></div></>}
 
