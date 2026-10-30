@@ -101,6 +101,7 @@ export default function App() {
   const [adminPayments, setAdminPayments] = useState<any[]>([])
   const [adminPaymentsBusy, setAdminPaymentsBusy] = useState(false)
   const [adminDecisionBusy, setAdminDecisionBusy] = useState<string | null>(null)
+  const [adminPaymentFilter, setAdminPaymentFilter] = useState<'pending' | 'all'>('pending')
   const [query, setQuery] = useState('')
   useEffect(() => { try { localStorage.setItem('vw-language', language) } catch {} }, [language])
   useEffect(() => { try { localStorage.setItem('vw-theme', theme) } catch {} }, [theme])
@@ -260,7 +261,12 @@ export default function App() {
     if (!supabase) return
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.access_token) { action('Login admin diperlukan.'); return }
-    const reason = decision === 'rejected' ? window.prompt('Alasan penolakan (opsional):') || 'Silakan hubungi admin melalui kanal resmi.' : null
+    let reason: string | null = null
+    if (decision === 'rejected') {
+      const reasonInput = window.prompt('Alasan penolakan (opsional):')
+      if (reasonInput === null) return
+      reason = reasonInput.trim() || 'Silakan hubungi admin melalui kanal resmi.'
+    }
     setAdminDecisionBusy(orderId)
     try {
       const response = await fetch('/api/payment/admin', {
@@ -268,9 +274,8 @@ export default function App() {
         body: JSON.stringify({ order_id: orderId, decision, reason }),
       })
       const result = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(result.error || 'Keputusan tidak dapat disimpan.')
+      if (!response.ok || result.success !== true) throw new Error(result.error || 'Keputusan tidak dapat disimpan.')
       action(`Pembayaran ${orderId}: ${decision.toUpperCase()}.`)
-      await loadAdminPayments()
       await loadAdminData()
     } catch (error) { action(error instanceof Error ? error.message : 'Verifikasi gagal.') }
     finally { setAdminDecisionBusy(null) }
@@ -317,6 +322,7 @@ export default function App() {
         ends_at: row.ends_at ?? null,
         payment_reference: row.payment_reference ?? null,
       })))
+      await loadAdminPayments()
     } catch (error) {
       setAdminError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -733,8 +739,51 @@ export default function App() {
                 <ChevronRight size={17}/>
               </button>)}</div>}
             </div>
-            <div className="glass-panel transactions-panel admin-payment-review"><div className="panel-heading"><div><span className="section-kicker">MANUAL QRIS</span><h3>Payment verification queue</h3></div><button className="button button-outline" disabled={adminPaymentsBusy} onClick={()=>void loadAdminPayments()}>{adminPaymentsBusy?'Loading…':'Refresh queue'}</button></div>
-              {adminPayments.length===0 ? <div className="empty-state"><b>No submitted proofs loaded</b><span>Refresh queue to check payment submissions.</span></div> : <div className="admin-member-list">{adminPayments.map(tx=><div className="admin-member-row" key={tx.order_id}><div className="admin-member-info"><b>{tx.order_id}</b><small>{tx.plan} · {tx.billing_period} · Rp {Number(tx.amount).toLocaleString('id-ID')}</small><small>Member: {tx.user_id} · {tx.status}</small><small>{tx.created_at ? new Date(tx.created_at).toLocaleString('id-ID') : ''}</small>{tx.proof_url && <a className="text-link" href={tx.proof_url} target="_blank" rel="noreferrer">Open private proof <ArrowRight size={13}/></a>}</div><div className="admin-member-actions"><button className="button button-primary" disabled={adminDecisionBusy===tx.order_id || tx.status!=='pending_verification' || !tx.proof_url} onClick={()=>void reviewPayment(tx.order_id,'approved')}>{adminDecisionBusy===tx.order_id?'Saving…':'Approve payment'}</button><button className="button button-outline" disabled={adminDecisionBusy===tx.order_id || tx.status!=='pending_verification'} onClick={()=>void reviewPayment(tx.order_id,'rejected')}>Reject</button></div></div>)}</div>}
+            <div className="glass-panel transactions-panel admin-payment-review">
+              <div className="panel-heading admin-payment-heading">
+                <div><span className="section-kicker">MANUAL QRIS / VERIFICATION</span><h3>Payment verification queue</h3><p className="muted">Periksa bukti dan detail transaksi sebelum mengambil keputusan.</p></div>
+                <button className="button button-outline" disabled={adminPaymentsBusy} onClick={()=>void loadAdminPayments()}>{adminPaymentsBusy?'Loading…':'Refresh queue'} <Activity size={14}/></button>
+              </div>
+              <div className="admin-payment-toolbar">
+                <div className="admin-payment-counts">
+                  <span><b>{adminPayments.filter(tx=>tx.status==='pending_verification').length}</b> Awaiting review</span>
+                  <span><b>{adminPayments.filter(tx=>tx.status==='approved').length}</b> Approved</span>
+                  <span><b>{adminPayments.filter(tx=>tx.status==='rejected').length}</b> Rejected</span>
+                </div>
+                <div className="admin-payment-filters">
+                  <button type="button" className={adminPaymentFilter==='pending'?'selected':''} onClick={()=>setAdminPaymentFilter('pending')}>Needs review</button>
+                  <button type="button" className={adminPaymentFilter==='all'?'selected':''} onClick={()=>setAdminPaymentFilter('all')}>All submissions</button>
+                </div>
+              </div>
+              {adminPaymentsBusy && adminPayments.length===0 ? <div className="empty-state"><b>Loading payment submissions…</b></div> :
+                (adminPaymentFilter==='pending' ? adminPayments.filter(tx=>tx.status==='pending_verification') : adminPayments).length===0
+                ? <div className="empty-state"><b>{adminPaymentFilter==='pending'?'No payments waiting for review':'No submitted payment proofs'}</b><span>{adminPaymentFilter==='pending'?'All submitted proofs have been reviewed.':'New QRIS submissions will appear here after a member uploads proof.'}</span></div>
+                : <div className="admin-payment-list">{(adminPaymentFilter==='pending' ? adminPayments.filter(tx=>tx.status==='pending_verification') : adminPayments).map(tx=>
+                  <article className="admin-payment-card" key={tx.order_id}>
+                    <div className="admin-payment-card-top">
+                      <div className="admin-payment-identity">
+                        <span className="section-kicker">TRANSACTION ID</span><b>{tx.order_id}</b>
+                        <small>{tx.customer_email || `Member ID: ${tx.user_id}`}</small>
+                      </div>
+                      <span className={`admin-payment-status ${tx.status==='approved'?'is-approved':tx.status==='rejected'?'is-rejected':'is-pending'}`}>{String(tx.status).replace(/_/g,' ')}</span>
+                    </div>
+                    <div className="admin-payment-card-body">
+                      <div className="admin-payment-facts">
+                        <div><small>MEMBERSHIP</small><b>{tx.plan} · {tx.billing_period}</b></div>
+                        <div><small>AMOUNT</small><b>Rp {Number(tx.amount).toLocaleString('id-ID')}</b></div>
+                        <div><small>SUBMITTED</small><b>{tx.proof_submitted_at ? new Date(tx.proof_submitted_at).toLocaleString('id-ID') : tx.created_at ? new Date(tx.created_at).toLocaleString('id-ID') : '—'}</b></div>
+                      </div>
+                      {tx.proof_url ? <a className="admin-proof-preview" href={tx.proof_url} target="_blank" rel="noreferrer"><img src={tx.proof_url} alt={`Payment proof for ${tx.order_id}`} loading="lazy"/><span><b>View payment proof</b><small>Private image · opens in new tab</small></span><ArrowRight size={15}/></a> : <div className="admin-proof-missing"><FileText size={16}/> Proof image unavailable or expired. Refresh queue to generate a new secure link.</div>}
+                    </div>
+                    <div className="admin-payment-card-footer">
+                      <span>{tx.status==='pending_verification'?'Confirm the payment in the merchant app before approving.':`Reviewed · ${tx.status}`}</span>
+                      <div className="admin-member-actions">
+                        <button className="button button-primary" disabled={adminDecisionBusy!==null || tx.status!=='pending_verification' || !tx.proof_url} onClick={()=>void reviewPayment(tx.order_id,'approved')}>{adminDecisionBusy===tx.order_id?'Saving…':'Approve payment'} <Check size={14}/></button>
+                        <button className="button button-outline" disabled={adminDecisionBusy!==null || tx.status!=='pending_verification'} onClick={()=>void reviewPayment(tx.order_id,'rejected')}>Reject <X size={14}/></button>
+                      </div>
+                    </div>
+                  </article>
+                )}</div>}
             </div>
             <div className="two-column"><div className="glass-panel content-panel"><div className="panel-heading"><h3>Platform management</h3><Pill tone="silver">CONNECTED</Pill></div><div className="admin-action"><span className="admin-action-icon"><Wallet size={17}/></span><span><b>Membership plans</b><small>Essential, Advanced, Private · payment checkout still disabled</small></span></div><div className="admin-action"><span className="admin-action-icon"><Newspaper size={17}/></span><span><b>Content library</b><small>Content editor not implemented yet</small></span></div></div><div className="glass-panel content-panel"><div className="panel-heading"><h3>System status</h3><Activity size={16}/></div>{[{k:'Frontend',v:'Available'},{k:'Authentication',v:'Connected'},{k:'Database',v:'Connected'},{k:'Payment provider',v:'Not connected'}].map(x=><div className="system-row" key={x.k}><span>{x.k}</span><Pill tone={x.v==='Available'||x.v==='Connected'?'positive':'neutral'}>{x.v}</Pill></div>)}</div></div>
           </>}
