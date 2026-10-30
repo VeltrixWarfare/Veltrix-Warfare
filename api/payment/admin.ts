@@ -14,7 +14,7 @@ export default async function handler(req: any, res: any) {
   const { data: profile } = await db.from('profiles').select('role').eq('id', authData.user.id).maybeSingle()
   if (profile?.role !== 'admin') return res.status(403).json({ error: 'Akses admin diperlukan.' })
   if (req.method === 'GET') {
-    const { data, error } = await db.from('payment_transactions').select('order_id,user_id,plan,billing_period,amount,status,created_at,proof_path,customer_email').not('proof_path','is',null).order('created_at',{ascending:false}).limit(100)
+    const { data, error } = await db.from('payment_transactions').select('order_id,user_id,plan,billing_period,amount,status,created_at,proof_submitted_at,proof_path,customer_email').not('proof_path','is',null).order('created_at',{ascending:false}).limit(100)
     if (error) return res.status(500).json({ error: 'Gagal memuat pengajuan pembayaran.' })
     const transactions = await Promise.all((data || []).map(async tx => {
       const { data: proof } = await db.storage.from('payment-proofs').createSignedUrl(tx.proof_path, 300)
