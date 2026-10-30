@@ -1,21 +1,34 @@
-# VELTRIX WARFARE — Manual QRIS Membership Payments
+# VELTRIX WARFARE — Manual QRIS (integration handoff)
 
-## Flow
-Member selects a configured package -> backend creates a server-priced transaction -> site shows the original merchant QRIS -> member uploads a JPG/PNG/WEBP proof (max 5 MB) -> backend stores it in private Supabase Storage and emails the admin -> admin compares the payment in the official merchant app and approves/rejects -> only the server-side admin review RPC updates membership.
+## What this build does
+- Keeps the existing VELTRIX UI and server-priced package values.
+- Creates payment records through `api/payment/create.ts` in `public.payment_transactions`.
+- Accepts proof uploads through `api/payment/submit.ts` into the private `payment-proofs` Storage bucket.
+- Sends an admin email through Resend when configured.
+- Provides member transaction history and admin review endpoints.
+- Removes the Midtrans webhook endpoint from this project build.
 
-A submitted screenshot is not proof of settlement. Do not approve until the actual merchant transaction has been checked.
+## Important database note
+The application code uses `public.payment_transactions`. The separate `public.manual_qris_payments` table created by the earlier quick SQL is NOT used by this code. Do not delete it yet; it can remain unused until the live app is verified.
 
-## Supabase setup
-1. Back up the current Supabase project.
-2. Confirm the existing `profiles` table includes `id`, `full_name`, `role` and that `memberships` includes `user_id`, `plan`, `status`, `starts_at`, `ends_at`, `payment_reference`, `updated_at`. Existing admin setup is expected to define `public.is_admin()`.
-3. Run the migrations in order in `supabase/migrations/` if they have not already been applied. For an existing database, run the new `202610300001_manual_qris_payment.sql` migration after reviewing it. Do not blindly re-run old migration history.
-4. Confirm the Storage bucket `payment-proofs` is private. Migration sets a 5 MB file limit and allowed image types.
-5. Ensure your account has `profiles.role = 'admin'` using the exact registered account. Never promote a user based only on a request from the browser.
+Apply the project migrations in order only after backing up Supabase:
+1. `supabase/migrations/202610290001_payment_integration.sql`
+2. `supabase/migrations/202610300001_manual_qris_payment.sql`
+
+The second migration and the approval RPC expect a `public.memberships` table with columns:
+`user_id, plan, status, starts_at, ends_at, payment_reference, created_at, updated_at`
+and a unique constraint on `user_id`. It also expects `public.profiles(id, role)`.
+Your previous report said `memberships` is empty and `vw_memberships` contains membership data. An empty table is not a problem by itself, but if the actual columns or source of membership entitlement differ, DO NOT run the approval RPC migration until the schema is reconciled. The approval endpoint will not safely activate membership until that is verified.
+
+The SQL uses `lower(role)='admin'`. Ensure the trusted `profiles.role` for the authorized administrator is `admin`.
+
+## QRIS image is intentionally not fabricated
+This ZIP did not contain `public/qris-merchant.jpg`. Add the original merchant QRIS image at exactly that path before enabling checkout. Do not edit the QR, NMID, merchant name, or payment data. If the merchant display name must become VELTRIX WARFARE, obtain a newly issued QRIS from the licensed acquirer/provider; do not retouch the old image.
 
 ## Vercel environment variables
 Frontend:
 - `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY` (public anon/publishable key only)
+- `VITE_SUPABASE_ANON_KEY`
 
 Server-only:
 - `SUPABASE_URL`
@@ -23,39 +36,26 @@ Server-only:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `RESEND_API_KEY`
 - `PAYMENT_ADMIN_EMAIL`
-- `EMAIL_FROM` (sender on a domain verified with your email provider)
+- `EMAIL_FROM`
 
-Never put `SUPABASE_SERVICE_ROLE_KEY` or `RESEND_API_KEY` in a `VITE_*` variable or client code. Configure Preview first, then redeploy. Use a verified sender domain for production mail.
+Never expose service-role or Resend secrets in `VITE_*` variables or client code.
 
-## Merchant QRIS
-The website currently displays `public/qris-merchant.jpg` exactly as provided. The visible merchant identity in the image is not edited. To use VELTRIX WARFARE as the actual merchant name, request an official merchant-name update from the licensed QRIS acquirer/provider and replace the image only with the newly issued authentic QRIS. Test a small amount and check the transaction in the official merchant app.
+## Email
+Use a Resend account controlled by the business owner/parent or guardian as appropriate. Verify the sending domain and configure `EMAIL_FROM` to that verified sender. Check Vercel Function Logs and Resend delivery logs. Email failure currently logs an error; it does not undo the saved proof submission.
 
-## Price configuration
-Current server prices are preserved from the project:
+## Prices
+The server-side package configuration remains:
 - Essential: Rp79.000/month; Rp758.000/year
 - Advanced: Rp149.000/month; Rp1.430.000/year
 - Private: Rp299.000/month; Rp2.870.000/year
 
-Confirm the final commercial prices before accepting real payments. Server-side prices are authoritative; browser values are ignored.
+Confirm prices before real payments.
 
-## Email
-Create a Resend account owned/managed by the business owner/parent or guardian as appropriate, verify a sending domain, then set `RESEND_API_KEY`, `PAYMENT_ADMIN_EMAIL`, and `EMAIL_FROM` in Vercel. Email notification failure is logged server-side; check Vercel Function Logs. Configure monitoring and test delivery before going live.
-
-## Run / deploy
-- `npm install`
-- `npm run build`
-- Push the project to the connected Git repository or deploy the project directory using Vercel.
-- Set environment variables for Preview, deploy, and test with a test account before Production.
-
-## Important test checklist
-- Unauthenticated checkout is rejected.
-- Unknown plan / billing period is rejected.
-- Member cannot submit proof to another user's order.
-- Uploads accept only JPEG/PNG/WEBP up to 5 MB.
-- Duplicate proof submission is rejected.
-- Member sees only their own transactions.
-- Non-admin cannot access admin queue or review transactions.
-- Screenshot upload alone does not activate membership.
-- Admin approves only after verifying the actual merchant record.
-- Rejection does not activate membership.
-- Email delivery is checked in provider and Vercel logs.
+## Verification status / deployment
+Dependency installation timed out in this environment, so a complete `npm run build` has NOT been verified. Do not claim production readiness. Before deployment:
+1. Add the authentic QRIS image.
+2. Reconcile `memberships` schema and test approval against a test account.
+3. Apply migrations only after schema review and backup.
+4. Run `npm install` and `npm run build` locally or in CI.
+5. Test unauthenticated rejection, member ownership, upload size/type, duplicate proof prevention, admin authorization, rejection, approval, membership dates, email, and private proof access.
+6. Confirm the deployed site and repository no longer contain Midtrans code or credentials.
