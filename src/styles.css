@@ -123,3 +123,44 @@
 .membership-profile-grid b{font-size:10px;font-weight:650;overflow-wrap:anywhere;line-height:1.5}
 .theme-light .membership-profile-grid>div{background:#fff}
 @media(max-width:480px){.profile-summary{gap:12px}.profile-avatar{width:78px;height:78px}.membership-profile-grid{grid-template-columns:1fr}.membership-profile-grid>div{display:flex;justify-content:space-between;align-items:center;gap:12px}.membership-profile-grid small{margin:0}.membership-profile-grid b{text-align:right}}
+
+
+/* MEMBER DIRECTORY — compact list with a focused per-account editor */
+.admin-directory-panel { padding: 18px; }
+.admin-directory-list { display: grid; gap: 8px; }
+.admin-directory-item { width: 100%; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 13px 14px; border: 1px solid var(--border); border-radius: 9px; background: #ffffff03; text-align: left; transition: background .18s,border-color .18s,transform .18s; }
+.admin-directory-item:hover { background: #ffffff08; border-color: var(--border-strong); transform: translateY(-1px); }
+.admin-directory-item > svg { margin-left: auto; color: #858991; flex: 0 0 auto; }
+.admin-directory-avatar,.admin-member-avatar { display: grid; place-items: center; flex: 0 0 auto; width: 38px; height: 38px; border-radius: 9px; border: 1px solid #ffffff1b; background: linear-gradient(145deg,#d5d8df20,#ffffff04); color: #d8dbe1; font-size: 13px; font-weight: 700; }
+.admin-directory-name { min-width: 0; display: grid; gap: 4px; }
+.admin-directory-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+.admin-directory-name small { color: #777b83; font: 8px 'DM Mono',monospace; letter-spacing: .1em; }
+.admin-member-editor { max-width: 760px; margin: 0 auto; }
+.admin-back-button { display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: #aeb1b8; padding: 4px 0 15px; font-size: 10px; }
+.admin-back-button:hover { color: #fff; }
+.admin-editor-heading { display: flex; align-items: center; gap: 13px; padding: 16px 0 20px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.admin-member-avatar { width: 46px; height: 46px; border-radius: 11px; font-size: 16px; }
+.admin-member-title { min-width: 0; flex: 1; }
+.admin-member-title h3 { margin: 5px 0 4px; font-size: 17px; letter-spacing: -.03em; }
+.admin-member-title small { color: #7e828a; font-size: 9px; }
+.admin-editor-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; row-gap: 2px; padding: 5px 0 18px; }
+.admin-editor-grid .form-label input,.admin-editor-grid .form-label select { display: block; width: 100%; height: 40px; margin-top: 7px; padding: 0 11px; border: 1px solid var(--border); border-radius: 6px; background: #0003; color: #eee; font-size: 11px; }
+.admin-editor-grid .form-label select { color-scheme: dark; }
+.admin-reference-field { grid-column: 1 / -1; }
+.admin-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 15px; border-top: 1px solid var(--border); }
+.admin-editor-footer > span { color: #777b83; font-size: 9px; line-height: 1.6; }
+.admin-protected-note { display: flex; align-items: center; gap: 9px; margin-top: 18px; padding: 13px; border: 1px solid var(--border); border-radius: 8px; color: #aeb2ba; font-size: 10px; }
+.theme-light .admin-directory-item { background: #fff9; }
+.theme-light .admin-directory-item:hover { background: #fff; }
+.theme-light .admin-directory-name small,.theme-light .admin-member-title small,.theme-light .admin-editor-footer > span { color: #737985; }
+.theme-light .admin-editor-grid .form-label input,.theme-light .admin-editor-grid .form-label select { background: #fff; color: #20232a; border-color: var(--border); color-scheme: light; }
+@media (max-width: 620px) {
+  .admin-directory-panel { padding: 13px; }
+  .admin-directory-item { padding: 11px; }
+  .admin-editor-grid { grid-template-columns: 1fr; }
+  .admin-reference-field { grid-column: auto; }
+  .admin-editor-heading { gap: 10px; }
+  .admin-member-title h3 { font-size: 14px; }
+  .admin-editor-footer { align-items: stretch; flex-direction: column; }
+  .admin-editor-footer .button { width: 100%; }
+}

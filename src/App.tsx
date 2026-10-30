@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays,
-  Check, ChevronDown, CircleHelp, Command, Compass, Crown, Eye, FileText, Filter,
+  Check, ChevronDown, ChevronRight, ArrowLeft, CircleHelp, Command, Compass, Crown, Eye, FileText, Filter,
   Globe2, GraduationCap, LayoutDashboard, LockKeyhole, LogIn, Menu, MoreHorizontal,
   Newspaper, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Star,
   TrendingUp, Wallet, X, Zap
@@ -87,6 +87,7 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [adminRoleLoading, setAdminRoleLoading] = useState(false)
   const [adminMembers, setAdminMembers] = useState<AdminMember[]>([])
+  const [selectedAdminMemberId, setSelectedAdminMemberId] = useState<string | null>(null)
   const [adminError, setAdminError] = useState('')
   const [adminBusyUser, setAdminBusyUser] = useState<string | null>(null)
   const [membershipAccess, setMembershipAccess] = useState<{ active: boolean; plan: string | null; ends_at: string | null }>({ active: false, plan: null, ends_at: null })
@@ -602,6 +603,7 @@ export default function App() {
     const timer = window.setInterval(() => { void refreshMarket() }, 60_000)
     return () => { alive = false; window.clearInterval(timer) }
   }, [])
+  const selectedAdminMember = adminMembers.find(member => member.id === selectedAdminMemberId) || null
   const title = page === 'Overview' ? (language === 'id' ? 'Ringkasan pasar' : language === 'ja' ? 'マーケット概要' : language === 'zh' ? '市场概览' : language === 'ar' ? 'نظرة عامة على السوق' : 'Market overview') : page === 'Settings' ? tr('settings') : tr(({ 'Market':'market', 'News & Calendar':'news', 'Academy':'academy', 'Analysis':'analysis', 'About':'about', 'Membership':'membership', 'Login / Register':'login', 'Admin Panel':'admin', 'Transactions':'transactions' } as Record<string,string>)[page] || page)
 
   return <div className={`app-shell ${theme === 'light' ? 'theme-light' : 'theme-dark'}`} data-theme={theme}>
@@ -703,19 +705,33 @@ export default function App() {
             <div className="demo-banner compact"><ShieldCheck size={16}/><span>ADMIN ACCESS VERIFIED · perubahan membership dicatat di Supabase.</span><button className="button button-outline" disabled={adminLoading} onClick={() => void loadAdminData()}><Activity size={14}/> Refresh</button></div>
             {adminError && <div className="demo-banner compact"><CircleHelp size={16}/><span>{adminError}</span></div>}
             <div className="admin-metrics">{[{l:'Registered members',v:String(adminMembers.length),s:'Profiles in database'},{l:'Active memberships',v:String(adminMembers.filter(m=>m.status==='active' && (!m.starts_at || new Date(m.starts_at).getTime() <= Date.now()) && (!m.ends_at || new Date(m.ends_at).getTime() > Date.now())).length),s:'Membership status active'},{l:'Inactive / no plan',v:String(adminMembers.filter(m=>m.status!=='active').length),s:'Includes accounts without membership'},{l:'Transactions',v:String(adminPayments.length),s:'Manual QRIS review queue'}].map(m=><div className="glass-panel admin-metric" key={m.l}><span>{m.l}</span><b>{m.v}</b><small>{m.s}</small></div>)}</div>
-            <div className="glass-panel transactions-panel"><div className="panel-heading"><div><span className="section-kicker">MEMBER DIRECTORY</span><h3>Accounts & membership</h3></div><Pill tone="silver">{adminMembers.length} ACCOUNTS</Pill></div>
-              {adminLoading ? <div className="empty-state large-empty"><b>Loading member data…</b></div> : adminMembers.length === 0 ? <div className="empty-state large-empty"><div className="empty-icon"><GraduationCap size={22}/></div><b>No member profiles found</b><span>Setelah user registrasi, profil akan tampil di sini jika trigger database berhasil.</span></div> : <div className="admin-member-list">{adminMembers.map(member=><div className="admin-member-row" key={member.id}>
-                <div className="admin-member-info"><b>{member.full_name || 'Unnamed member'}</b><small>{member.id.slice(0,8)}… · joined {member.created_at ? new Date(member.created_at).toLocaleDateString() : 'unknown date'}</small><small>Role akun: {member.role.toUpperCase()} · role tidak berubah saat membership diedit</small></div>
-                <div className="admin-member-actions" style={{display:'grid',gap:'8px',minWidth:'220px'}}>
-                  <label className="form-label">Plan<select value={member.plan || 'Essential'} onChange={e=>editAdminMember(member.id,{plan:e.target.value})}><option value="Essential">Essential</option><option value="Advanced">Advanced</option><option value="Private">Private</option></select></label>
-                  <label className="form-label">Status<select value={member.status || 'inactive'} onChange={e=>editAdminMember(member.id,{status:e.target.value})}><option value="inactive">Inactive</option><option value="active">Active</option><option value="expired">Expired</option><option value="cancelled">Cancelled</option></select></label>
-                  <label className="form-label">Start date<input type="date" value={member.starts_at ? member.starts_at.slice(0,10) : ''} onChange={e=>editAdminMember(member.id,{starts_at:e.target.value || null})}/></label>
-                  <label className="form-label">End date<input type="date" value={member.ends_at ? member.ends_at.slice(0,10) : ''} onChange={e=>editAdminMember(member.id,{ends_at:e.target.value || null})}/></label>
-                  <label className="form-label">Payment reference<input type="text" value={member.payment_reference || ''} onChange={e=>editAdminMember(member.id,{payment_reference:e.target.value || null})} placeholder="Invoice / transfer reference" maxLength={120}/></label>
-                  <button className="button button-primary" disabled={adminBusyUser===member.id || member.role==='admin'} onClick={()=>void updateAdminMember(member)}>{adminBusyUser===member.id?'Saving…':'Save membership'}</button>
-                  {member.role==='admin' && <small className="muted">Admin account dilindungi dari perubahan membership.</small>}
+            <div className="glass-panel transactions-panel admin-directory-panel">
+              <div className="panel-heading">
+                <div><span className="section-kicker">MEMBER DIRECTORY</span><h3>Accounts & membership</h3></div>
+                <Pill tone="silver">{adminMembers.length} ACCOUNTS</Pill>
+              </div>
+              {adminLoading ? <div className="empty-state large-empty"><b>Loading member data…</b></div> : adminMembers.length === 0 ? <div className="empty-state large-empty"><div className="empty-icon"><GraduationCap size={22}/></div><b>No member profiles found</b><span>Setelah user registrasi, profil akan tampil di sini jika trigger database berhasil.</span></div> : selectedAdminMember ? <div className="admin-member-editor">
+                <button type="button" className="admin-back-button" onClick={() => setSelectedAdminMemberId(null)}><ArrowLeft size={15}/> Back to member list</button>
+                <div className="admin-editor-heading">
+                  <div className="admin-member-avatar">{(selectedAdminMember.full_name || 'M').slice(0,1).toUpperCase()}</div>
+                  <div className="admin-member-title"><span className="section-kicker">ACCOUNT MEMBERSHIP</span><h3>{selectedAdminMember.full_name || 'Unnamed member'}</h3><small>{selectedAdminMember.id.slice(0,8)}… · joined {selectedAdminMember.created_at ? new Date(selectedAdminMember.created_at).toLocaleDateString('id-ID') : 'unknown date'}</small></div>
+                  <Pill tone={selectedAdminMember.role === 'admin' ? 'silver' : 'neutral'}>{selectedAdminMember.role.toUpperCase()}</Pill>
                 </div>
-              </div>)}</div>}
+                {selectedAdminMember.role === 'admin' ? <div className="admin-protected-note"><ShieldCheck size={16}/> Admin account dilindungi dan tidak dapat diubah melalui editor membership.</div> : <>
+                  <div className="admin-editor-grid">
+                    <label className="form-label">Plan<select value={selectedAdminMember.plan || 'Essential'} onChange={e=>editAdminMember(selectedAdminMember.id,{plan:e.target.value})}><option value="Essential">Essential</option><option value="Advanced">Advanced</option><option value="Private">Private</option></select></label>
+                    <label className="form-label">Status<select value={selectedAdminMember.status || 'inactive'} onChange={e=>editAdminMember(selectedAdminMember.id,{status:e.target.value})}><option value="inactive">Inactive</option><option value="active">Active</option><option value="expired">Expired</option><option value="cancelled">Cancelled</option></select></label>
+                    <label className="form-label">Start date<input type="date" value={selectedAdminMember.starts_at ? selectedAdminMember.starts_at.slice(0,10) : ''} onChange={e=>editAdminMember(selectedAdminMember.id,{starts_at:e.target.value || null})}/></label>
+                    <label className="form-label">End date<input type="date" value={selectedAdminMember.ends_at ? selectedAdminMember.ends_at.slice(0,10) : ''} onChange={e=>editAdminMember(selectedAdminMember.id,{ends_at:e.target.value || null})}/></label>
+                    <label className="form-label admin-reference-field">Payment reference<input type="text" value={selectedAdminMember.payment_reference || ''} onChange={e=>editAdminMember(selectedAdminMember.id,{payment_reference:e.target.value || null})} placeholder="Invoice / transfer reference" maxLength={120}/></label>
+                  </div>
+                  <div className="admin-editor-footer"><span>Changes are saved to the membership database.</span><button className="button button-primary" disabled={adminBusyUser===selectedAdminMember.id} onClick={()=>void updateAdminMember(selectedAdminMember)}>{adminBusyUser===selectedAdminMember.id?'Saving…':'Save changes'} <Check size={14}/></button></div>
+                </>}
+              </div> : <div className="admin-directory-list">{adminMembers.map(member=><button type="button" className="admin-directory-item" key={member.id} onClick={() => setSelectedAdminMemberId(member.id)}>
+                <span className="admin-directory-avatar">{(member.full_name || 'M').slice(0,1).toUpperCase()}</span>
+                <span className="admin-directory-name"><b>{member.full_name || 'Unnamed member'}</b><small>{member.role.toUpperCase()} ACCOUNT</small></span>
+                <ChevronRight size={17}/>
+              </button>)}</div>}
             </div>
             <div className="glass-panel transactions-panel admin-payment-review"><div className="panel-heading"><div><span className="section-kicker">MANUAL QRIS</span><h3>Payment verification queue</h3></div><button className="button button-outline" disabled={adminPaymentsBusy} onClick={()=>void loadAdminPayments()}>{adminPaymentsBusy?'Loading…':'Refresh queue'}</button></div>
               {adminPayments.length===0 ? <div className="empty-state"><b>No submitted proofs loaded</b><span>Refresh queue to check payment submissions.</span></div> : <div className="admin-member-list">{adminPayments.map(tx=><div className="admin-member-row" key={tx.order_id}><div className="admin-member-info"><b>{tx.order_id}</b><small>{tx.plan} · {tx.billing_period} · Rp {Number(tx.amount).toLocaleString('id-ID')}</small><small>Member: {tx.user_id} · {tx.status}</small><small>{tx.created_at ? new Date(tx.created_at).toLocaleString('id-ID') : ''}</small>{tx.proof_url && <a className="text-link" href={tx.proof_url} target="_blank" rel="noreferrer">Open private proof <ArrowRight size={13}/></a>}</div><div className="admin-member-actions"><button className="button button-primary" disabled={adminDecisionBusy===tx.order_id || tx.status!=='pending_verification' || !tx.proof_url} onClick={()=>void reviewPayment(tx.order_id,'approved')}>{adminDecisionBusy===tx.order_id?'Saving…':'Approve payment'}</button><button className="button button-outline" disabled={adminDecisionBusy===tx.order_id || tx.status!=='pending_verification'} onClick={()=>void reviewPayment(tx.order_id,'rejected')}>Reject</button></div></div>)}</div>}
