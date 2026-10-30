@@ -10,7 +10,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts'
 import { instruments, lessons, news } from './data/demo'
 import { supabase } from './lib/supabase'
 
-type Page = 'Settings' | 'Overview' | 'Market' | 'News & Calendar' | 'Academy' | 'Analysis' | 'About' | 'Membership' | 'Login / Register' | 'Admin Panel' | 'Transactions'
+type Page = 'Payment' | 'Settings' | 'Overview' | 'Market' | 'News & Calendar' | 'Academy' | 'Analysis' | 'About' | 'Membership' | 'Login / Register' | 'Admin Panel' | 'Transactions'
 const nav: { label: Page; icon: typeof LayoutDashboard; group: string }[] = [
   { label: 'Overview', icon: LayoutDashboard, group: 'PLATFORM' },
   { label: 'Market', icon: Activity, group: 'PLATFORM' },
@@ -175,8 +175,10 @@ export default function App() {
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok || !result.order_id) throw new Error(result.error || 'Transaksi gagal dibuat.')
-      setActivePayment(result)
+      setActivePayment({ ...result, status: result.status || 'awaiting_payment' })
       setProofFile(null)
+      setNotice('')
+      setPage('Payment')
       action('Transaksi dibuat. Selesaikan pembayaran QRIS lalu unggah bukti.')
     } catch (error) {
       action(error instanceof Error ? error.message : 'Gagal membuat transaksi.')
@@ -186,11 +188,12 @@ export default function App() {
   const submitPaymentProof = async () => {
     if (!supabase || !activePayment || !proofFile) { action('Pilih bukti pembayaran terlebih dahulu.'); return }
     if (!['image/jpeg','image/png','image/webp'].includes(proofFile.type) || proofFile.size > 3 * 1024 * 1024) {
-      action('Bukti harus berupa JPG, PNG, atau WEBP maksimal 5 MB.'); return
+      action('Bukti harus berupa JPG, PNG, atau WEBP maksimal 3 MB.'); return
     }
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.access_token) { action('Sesi login berakhir. Silakan login ulang.'); return }
     setProofBusy(true)
+    action('Mengunggah bukti pembayaran…')
     try {
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader()
@@ -205,7 +208,7 @@ export default function App() {
         body: JSON.stringify({ order_id: activePayment.order_id, mime_type: proofFile.type, file_base64: base64 }),
       })
       const result = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(result.error || 'Pengajuan bukti gagal.')
+      if (!response.ok) throw new Error(result.error || `Pengajuan bukti gagal (HTTP ${response.status}).`)
       setActivePayment({ ...activePayment, status: 'pending_verification' })
       setProofFile(null)
       action('Bukti terkirim. Membership tetap menunggu verifikasi admin.')
@@ -555,15 +558,29 @@ export default function App() {
         {page === 'About' && <><PageIntro kicker="05 / OUR PHILOSOPHY" title="A framework built on discipline." desc="VELTRIX WARFARE is a concept for a structured trading and education workspace — designed to put clarity before impulse."/><div className="about-hero glass-panel"><div><span className="section-kicker">DISCIPLINE OVER EMOTION</span><h2>Observe.<br/>Calculate.<br/><em>Execute.</em></h2><p>Markets are uncertain. A process can still be deliberate. VELTRIX WARFARE brings market observation, structured learning, and scenario planning into one focused interface.</p></div><div className="about-symbol">V<span>VW / 01</span></div></div><div className="values-grid">{[{n:'01',t:'Clarity',d:'Keep information organized and distinguish facts from assumptions.'},{n:'02',t:'Discipline',d:'Build decisions around a defined process and risk limits.'},{n:'03',t:'Continuous learning',d:'Treat review and education as part of the work.'}].map(v=><div className="glass-panel value-card" key={v.n}><span>{v.n}</span><h3>{v.t}</h3><p>{v.d}</p></div>)}</div><p className="disclaimer">Trading involves substantial risk and may not be suitable for everyone. This interface is an educational frontend preview and does not provide investment advice.</p></>}
 
         {page === 'Membership' && <><PageIntro kicker="06 / MEMBERSHIP" title="Choose your level of access." desc="Pilih paket, bayar menggunakan QRIS, lalu unggah bukti untuk diverifikasi admin. Membership aktif setelah pembayaran dicocokkan."/><div className="billing-row"><span>Billing period</span><div className="segmented">{(['Monthly','Yearly'] as const).map(b=><button key={b} className={billing===b?'selected':''} onClick={()=>setBilling(b)}>{b}{b==='Yearly'&&<small> SAVE 20%</small>}</button>)}</div></div><div className="pricing-grid">{[{name:'Essential',price:billing==='Monthly'?'79k':'758k',desc:'A focused starting point.',features:['Market overview','Learning library','Basic market notes']},{name:'Advanced',price:billing==='Monthly'?'149k':'1.430k',desc:'For a more structured workflow.',features:['Everything in Essential','Extended analysis library','Scenario frameworks','Advanced learning paths'],featured:true},{name:'Private',price:billing==='Monthly'?'299k':'2.870k',desc:'A comprehensive platform concept.',features:['Everything in Advanced','Premium research layout','Priority content access','Member features (planned)']}].map(p=><div className={`glass-panel price-card ${p.featured?'featured':''}`} key={p.name}>{p.featured&&<span className="popular-label">FEATURED PLAN</span>}<span className="section-kicker">{p.name.toUpperCase()} ACCESS</span><h3>{p.name}</h3><p>{p.desc}</p><div className="price"><b>Rp {p.price}</b><span>/{billing==='Monthly'?'month':'year'}</span></div><div className="price-divider"/>{p.features.map(f=><div className="feature-check" key={f}><Check size={15}/>{f}</div>)}<button className={`button ${p.featured?'button-primary':'button-outline'} full-button`} onClick={()=>void handleCheckout(p.name)} disabled={paymentBusyPlan!==null}>{paymentBusyPlan===p.name?'Preparing checkout…':'Select plan'} <ArrowRight size={14}/></button></div>)}</div>
-          {activePayment && <section className="glass-panel manual-payment-panel">
-            <div className="panel-heading"><div><span className="section-kicker">SECURE CHECKOUT / MANUAL QRIS</span><h2>Complete your payment</h2></div><Pill tone="silver">{activePayment.status.replace(/_/g,' ').toUpperCase()}</Pill></div>
+          <p className="fine-print">Pembayaran hanya diverifikasi setelah admin mencocokkan transaksi pada aplikasi merchant resmi. Upload bukti tidak otomatis mengaktifkan membership.</p></>}
+
+        {page === 'Payment' && <><PageIntro kicker="PAYMENT / MANUAL QRIS" title="Complete your payment." desc="Pembayaran diverifikasi manual oleh admin. Membership tidak aktif sampai transaksi cocok dengan catatan merchant."/>
+          {!activePayment ? <div className="glass-panel manual-payment-panel"><p className="muted">Tidak ada transaksi checkout yang aktif.</p><button type="button" className="button button-primary" onClick={() => go('Membership')}>Back to membership <ArrowRight size={14}/></button></div> :
+          <section className="glass-panel manual-payment-panel">
+            <div className="panel-heading"><div><span className="section-kicker">SECURE CHECKOUT / MANUAL QRIS</span><h2>VELTRIX WARFARE</h2></div><Pill tone="silver">{activePayment.status.replace(/_/g,' ').toUpperCase()}</Pill></div>
             <div className="manual-payment-grid">
               <div className="qris-card"><img src="/qris-merchant.jpg" alt="QRIS merchant asli — scan menggunakan aplikasi pembayaran" /><p className="muted">Gunakan gambar QRIS asli. Periksa nama merchant dan nominal di aplikasi pembayaran sebelum membayar.</p></div>
-              <div className="payment-details"><span className="section-kicker">VELTRIX WARFARE · DISCIPLINE OVER EMOTION</span><h3>{activePayment.plan} / {activePayment.billing_period}</h3><div className="payment-amount">Rp {activePayment.amount.toLocaleString('id-ID')}</div><div className="payment-id"><small>TRANSACTION ID</small><b>{activePayment.order_id}</b></div><ol className="payment-instructions"><li>Buka aplikasi bank atau e-wallet yang mendukung QRIS.</li><li>Scan QRIS dan periksa nama merchant pada aplikasi.</li><li>Bayar dengan nominal tepat seperti yang tertera.</li><li>Simpan bukti pembayaran, lalu unggah di bawah.</li></ol>
-              {activePayment.status === 'pending_verification' ? <div className="auth-note"><ShieldCheck size={15}/> Menunggu verifikasi admin. Membership belum aktif.</div> : <><label className="form-label">Payment proof · JPG / PNG / WEBP · maks. 3 MB<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>setProofFile(e.target.files?.[0] || null)} /></label><button className="button button-primary full-button" disabled={!proofFile || proofBusy} onClick={()=>void submitPaymentProof()}>{proofBusy?'Uploading proof…':'Submit payment proof'} <ArrowRight size={14}/></button></>}
-              <button className="button button-outline full-button" onClick={()=>{setActivePayment(null);setProofFile(null)}}>Close checkout</button></div></div>
+              <div className="payment-details"><span className="section-kicker">DISCIPLINE OVER EMOTION</span><h3>{activePayment.plan} / {activePayment.billing_period}</h3><div className="payment-amount">Rp {activePayment.amount.toLocaleString('id-ID')}</div><div className="payment-id"><small>TRANSACTION ID</small><b>{activePayment.order_id}</b></div>
+                <ol className="payment-instructions"><li>Buka aplikasi bank atau e-wallet yang mendukung QRIS.</li><li>Scan QRIS dan periksa nama merchant pada aplikasi.</li><li>Bayar dengan nominal tepat seperti yang tertera.</li><li>Simpan bukti pembayaran, lalu unggah di bawah.</li></ol>
+                {activePayment.status === 'pending_verification' ? <div className="auth-note"><ShieldCheck size={15}/> Bukti sudah diajukan. Menunggu verifikasi admin; membership belum aktif.</div> : <>
+                  <label className="form-label">Payment proof · JPG / PNG / WEBP · maks. 3 MB
+                    <input type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" onChange={e=>{setProofFile(e.target.files?.[0] || null);setNotice('')}} />
+                  </label>
+                  {proofFile && <div className="auth-note"><FileText size={15}/> {proofFile.name} · {(proofFile.size/1024).toFixed(0)} KB</div>}
+                  <button type="button" className="button button-primary full-button" disabled={!proofFile || proofBusy} onClick={()=>void submitPaymentProof()}>{proofBusy?'Mengunggah bukti…':'Submit payment proof'} <ArrowRight size={14}/></button>
+                </>}
+                <button type="button" className="button button-outline full-button" onClick={()=>{setActivePayment(null);setProofFile(null);setNotice('');setPage('Membership')}}>Close checkout</button>
+              </div>
+            </div>
+            <p className="fine-print">Jangan mengunggah bukti palsu. Admin akan mencocokkan pembayaran di aplikasi merchant resmi.</p>
           </section>}
-          <p className="fine-print">Pembayaran hanya diverifikasi setelah admin mencocokkan transaksi pada aplikasi merchant resmi. Upload bukti tidak otomatis mengaktifkan membership.</p></>}
+        </>}
 
         {page === 'Login / Register' && <><PageIntro kicker="07 / ACCOUNT ACCESS" title="Your workspace starts here." desc="Sign in or create your VELTRIX WARFARE account securely."/><div className="auth-wrap"><div className="glass-panel auth-card"><Logo/>{signedInEmail ? <><div className="auth-tabs"><button className="selected" type="button">Account</button></div><h2>You are signed in.</h2><p className="muted">Signed in as {signedInEmail}</p><div className="auth-note"><ShieldCheck size={14}/> Account authenticated successfully.</div><button className="button button-outline full-button" type="button" disabled={authBusy} onClick={() => void handleLogout()}>{authBusy ? 'Please wait...' : 'Logout'}</button></> : <><div className="auth-tabs"><button type="button" className={authMode==='Login'?'selected':''} onClick={()=>setAuthMode('Login')}>Login</button><button type="button" className={authMode==='Create account'?'selected':''} onClick={()=>setAuthMode('Create account')}>Create account</button></div><h2>{authMode==='Login'?'Welcome back.':'Create your account.'}</h2><p className="muted">Access your VELTRIX WARFARE workspace.</p><form onSubmit={handleAuthSubmit}><label className="form-label">Email address<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required/></label>{authMode==='Create account'&&<label className="form-label">Display name<input type="text" value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="Your name" autoComplete="name" maxLength={80} required/></label>}<label className="form-label">Password<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} minLength={8} placeholder="At least 8 characters" autoComplete={authMode==='Login'?'current-password':'new-password'} required/></label>{authMode==='Login'&&<button type="button" className="forgot-link" disabled={authBusy} onClick={()=>void handlePasswordReset()}>Forgot password?</button>}<button className="button button-primary full-button" type="submit" disabled={authBusy}>{authBusy?'Please wait...':authMode==='Login'?'Continue':'Create account'} <ArrowRight size={14}/></button></form><div className="auth-note"><LockKeyhole size={14}/> {supabase ? 'Secure authentication powered by Supabase.' : 'Authentication requires Supabase configuration.'}</div></>}</div></div></>}
 
