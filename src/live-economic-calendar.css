@@ -1,0 +1,39 @@
+.vw-live-calendar { min-width: 0; overflow: hidden; }
+.vw-calendar-heading { align-items: flex-start; gap: 12px; }
+.vw-calendar-subtitle { margin: 5px 0 0; color: var(--muted, #9ca3af); font-size: 12px; line-height: 1.5; }
+.vw-calendar-refresh { flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px; }
+.vw-calendar-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 16px 0; }
+.vw-calendar-stats > div { min-width: 0; border: 1px solid var(--line, rgba(255,255,255,.1)); background: rgba(255,255,255,.025); border-radius: 10px; padding: 11px 12px; }
+.vw-calendar-stats span { display: flex; align-items: center; gap: 6px; color: var(--muted, #9ca3af); font-size: 11px; }
+.vw-calendar-stats b { display: block; margin-top: 8px; font-size: 15px; overflow-wrap: anywhere; }
+.vw-calendar-filters { display: grid; grid-template-columns: minmax(180px, 1.6fr) repeat(2, minmax(105px, .8fr)) repeat(2, minmax(125px, .9fr)); gap: 8px; margin-bottom: 14px; }
+.vw-calendar-filters label { display: flex; min-width: 0; flex-direction: column; gap: 5px; color: var(--muted, #9ca3af); font-size: 11px; }
+.vw-calendar-search { position: relative; justify-content: flex-end; }
+.vw-calendar-search > svg { position: absolute; left: 10px; top: 11px; pointer-events: none; }
+.vw-calendar-filters input, .vw-calendar-filters select { width: 100%; min-width: 0; height: 36px; border: 1px solid var(--line, rgba(255,255,255,.12)); border-radius: 8px; background: var(--surface, #111316); color: inherit; padding: 0 9px; font: inherit; font-size: 12px; outline: none; }
+.vw-calendar-search input { padding-left: 30px; }
+.vw-calendar-message { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line, rgba(255,255,255,.12)); border-radius: 10px; padding: 16px; color: var(--muted, #9ca3af); font-size: 13px; }
+.vw-calendar-error { align-items: flex-start; border-color: rgba(229, 167, 86, .35); color: var(--text, #e5e7eb); }
+.vw-calendar-error p { margin: 5px 0; color: var(--muted, #9ca3af); line-height: 1.5; }
+.vw-calendar-error small { color: var(--muted, #9ca3af); line-height: 1.5; }
+.vw-calendar-table-wrap { overflow-x: auto; border: 1px solid var(--line, rgba(255,255,255,.1)); border-radius: 10px; }
+.vw-calendar-table { width: 100%; border-collapse: collapse; min-width: 680px; font-size: 12px; text-align: left; }
+.vw-calendar-table th { background: rgba(255,255,255,.035); color: var(--muted, #9ca3af); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: 11px 10px; white-space: nowrap; }
+.vw-calendar-table td { padding: 12px 10px; border-top: 1px solid var(--line, rgba(255,255,255,.07)); vertical-align: middle; white-space: nowrap; }
+.vw-calendar-time b, .vw-calendar-time small, .vw-calendar-country, .vw-calendar-event small { display: block; }
+.vw-calendar-time small, .vw-calendar-country, .vw-calendar-event small { margin-top: 4px; color: var(--muted, #9ca3af); font-size: 10px; }
+.vw-calendar-currency { font-weight: 700; letter-spacing: .02em; }
+.vw-calendar-event { white-space: normal !important; min-width: 160px; max-width: 280px; }
+.vw-calendar-event > a, .vw-calendar-event > b { display: inline-flex; align-items: center; gap: 5px; line-height: 1.4; color: inherit; text-decoration: none; }
+.vw-calendar-event > a:hover, .vw-calendar-event small a:hover { text-decoration: underline; }
+.vw-calendar-event small a { color: inherit; text-decoration: none; }
+.vw-impact { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border-radius: 5px; font-size: 10px; font-weight: 600; }
+.vw-impact-high { color: #f1b0b0; background: rgba(190, 62, 62, .14); }
+.vw-impact-medium { color: #e7c88c; background: rgba(190, 142, 62, .14); }
+.vw-impact-low { color: #b7c3d2; background: rgba(125, 145, 165, .13); }
+.vw-actual-released { font-weight: 700; color: var(--text, #f3f4f6); }
+.vw-calendar-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; color: var(--muted, #9ca3af); font-size: 10px; line-height: 1.5; }
+.vw-spin { animation: vw-calendar-spin 1s linear infinite; }
+@keyframes vw-calendar-spin { to { transform: rotate(360deg); } }
+@media (max-width: 900px) { .vw-calendar-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .vw-calendar-search { grid-column: 1 / -1; } }
+@media (max-width: 560px) { .vw-calendar-stats { grid-template-columns: 1fr; } .vw-calendar-heading { flex-direction: column; } .vw-calendar-refresh { align-self: flex-start; } .vw-calendar-filters { grid-template-columns: 1fr 1fr; } .vw-calendar-footer { flex-direction: column; } }
